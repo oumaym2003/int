@@ -1,24 +1,31 @@
 import React, { useState } from 'react';
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { Upload, FileImage, Stethoscope, CheckCircle2 } from 'lucide-react';
 
 const categoryOptions = [
-  { name: 'OMA', fullName: 'Otite Moyenne Aiguë', options: ['stade I', 'stade II', 'stade III', 'stade IV'], icon: '🔴' },
+  { name: 'OMA', fullName: 'Otite Moyenne Aiguë', options: ['cong', 'sup', 'perf'], icon: '🔴' },
   { name: 'OSM', fullName: 'Otite Séromuqueuse', options: [], icon: '🟡' },
   { name: 'Perfo', fullName: 'Perforation', options: ['mag', 'Nmag'], icon: '🔵' },
-  { name: 'Chole', fullName: 'Cholestéatome', options: ['attic', 'post', 'sup'], icon: '🟣' },
-  { name: 'PDR + Atel', fullName: 'Poche de Rétraction + Atélectasie', options: ['stade I', 'stade II'], icon: '🟠' },
+  { name: 'Chole', fullName: 'Cholestéatome', options: ['attic', 'Post-sup', 'attic Post-sup'], icon: '🟣' },
+  { name: 'PDR + Atel', fullName: 'Poche de Rétraction + Atélectasie', options: ['stade I', 'stade II', 'stade III'], icon: '🟠' },
   { name: 'Normal', fullName: 'Tympan Normal', options: [], icon: '🟢' },
   { name: 'Autre', fullName: 'Autre Pathologie', options: [], icon: '⚪' }
 ];
 
 export default function Accueil() {
   const [selectedImage, setSelectedImage] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
   const [selections, setSelections] = useState({});
   const [dragActive, setDragActive] = useState(false);
+  const navigate = useNavigate();
 
   const handleImageChange = (e) => {
     if (e.target.files && e.target.files[0]) {
       setSelectedImage(URL.createObjectURL(e.target.files[0]));
+      setSelectedFile(e.target.files[0]);
     }
   };
 
@@ -38,7 +45,40 @@ export default function Accueil() {
     setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       setSelectedImage(URL.createObjectURL(e.dataTransfer.files[0]));
+      setSelectedFile(e.dataTransfer.files[0]);
     }
+  };
+  // Fonction pour valider et enregistrer l'image
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveMessage('');
+    // Trouver la pathologie sélectionnée
+    const selectedCat = Object.keys(selections).find(cat => selections[cat]?.checked);
+    if (!selectedCat || !selectedFile) {
+      setSaveMessage('Veuillez sélectionner une pathologie et une image.');
+      setIsSaving(false);
+      return;
+    }
+    // Trouver l'option/stade si présent
+    const catObj = categoryOptions.find(c => c.name === selectedCat);
+    const pathologie_id = categoryOptions.findIndex(c => c.name === selectedCat) + 1;
+    const option_stade = selections[selectedCat]?.stage || '';
+    const formData = new FormData();
+    formData.append('pathologie_id', pathologie_id);
+    formData.append('option_stade', option_stade);
+    formData.append('file', selectedFile);
+    try {
+      await axios.post('/api/diagnostic/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setSaveMessage('Image enregistrée avec succès !');
+      setSelectedImage(null);
+      setSelectedFile(null);
+      setSelections({});
+    } catch (e) {
+      setSaveMessage("Erreur lors de l'enregistrement.");
+    }
+    setIsSaving(false);
   };
 
   const handleCheckboxChange = (catName, checked) => {
@@ -59,6 +99,7 @@ export default function Accueil() {
     <div className="min-h-screen flex items-center justify-center p-5 relative overflow-hidden">
       {/* Background animé */}
       <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 animate-gradient"></div>
+      
       {/* Particules médicales */}
       <div className="fixed inset-0 opacity-30 pointer-events-none">
         <div className="absolute top-20 left-10 w-2 h-2 bg-cyan-400 rounded-full animate-float"></div>
@@ -66,19 +107,32 @@ export default function Accueil() {
         <div className="absolute bottom-32 left-1/4 w-2 h-2 bg-cyan-300 rounded-full animate-float"></div>
         <div className="absolute bottom-20 right-1/3 w-2 h-2 bg-blue-300 rounded-full animate-float-delayed"></div>
       </div>
+
       {/* Carte principale */}
       <div className="relative w-full max-w-6xl bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl shadow-2xl p-8 md:p-12 animate-float-card">
+        {/* Bouton Mes Images */}
+        <div className="flex justify-end mb-4">
+          <button
+            className="px-5 py-2 bg-cyan-500 hover:bg-cyan-600 text-white rounded-xl font-semibold shadow transition-all"
+            onClick={() => navigate('/mes-images')}
+          >
+            Mes images enregistrées
+          </button>
+        </div>
         {/* Barre d'accent */}
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-400 via-blue-500 to-cyan-400 rounded-t-3xl"></div>
+        
         {/* En-tête */}
         <div className="flex items-center gap-3 mb-8">
           <Stethoscope className="w-8 h-8 text-cyan-400" />
           <h1 className="text-3xl font-bold text-white">Diagnostic ORL</h1>
         </div>
+
         <div className="flex flex-col lg:flex-row gap-10">
           {/* Section gauche - Formulaire */}
           <div className="flex-1 space-y-4">
             <h2 className="text-xl font-semibold text-cyan-300 mb-6">Pathologies Otologiques</h2>
+            
             {categoryOptions.map((cat, idx) => (
               <div 
                 key={idx}
@@ -86,10 +140,12 @@ export default function Accueil() {
               >
                 <div className="flex items-center gap-4">
                   <span className="text-2xl">{cat.icon}</span>
+                  
                   <div className="flex-1">
                     <div className="font-semibold text-white text-lg">{cat.name}</div>
                     <div className="text-xs text-blue-200/70">{cat.fullName}</div>
                   </div>
+
                   {cat.options.length > 0 && (
                     <select 
                       className="px-4 py-2 bg-white/10 border border-white/20 rounded-xl text-white focus:outline-none focus:bg-white/20 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30 transition-all cursor-pointer"
@@ -102,6 +158,7 @@ export default function Accueil() {
                       ))}
                     </select>
                   )}
+
                   <div className="relative">
                     <input 
                       type="checkbox" 
@@ -117,9 +174,11 @@ export default function Accueil() {
               </div>
             ))}
           </div>
+
           {/* Section droite - Upload d'image */}
           <div className="flex-1 flex flex-col items-center justify-center">
             <h2 className="text-xl font-semibold text-cyan-300 mb-6 self-start">Image Otoscopique</h2>
+            
             <div 
               className={`w-full border-2 border-dashed rounded-2xl p-8 transition-all duration-300 ${
                 dragActive 
@@ -138,6 +197,7 @@ export default function Accueil() {
                 className="hidden"
                 onChange={handleImageChange}
               />
+              
               {!selectedImage ? (
                 <div className="text-center">
                   <div className="flex justify-center mb-4">
@@ -171,12 +231,23 @@ export default function Accueil() {
                   >
                     Changer l'image
                   </button>
+                  <button
+                    className="w-full px-6 py-3 bg-cyan-500 hover:bg-cyan-600 text-white font-semibold rounded-xl shadow transition-all disabled:opacity-50 mt-2"
+                    onClick={handleSave}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? 'Enregistrement...' : 'OK'}
+                  </button>
+                  {saveMessage && (
+                    <div className={`text-center mt-2 ${saveMessage.includes('succès') ? 'text-green-400' : 'text-red-400'}`}>{saveMessage}</div>
+                  )}
                 </div>
               )}
             </div>
           </div>
         </div>
       </div>
+
       <style>{`
         @keyframes gradient {
           0%, 100% { background-position: 0% 50%; }
