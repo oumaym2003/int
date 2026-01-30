@@ -1,164 +1,162 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Stethoscope, Image as ImageIcon } from 'lucide-react';
+import { Edit, Image as ImageIcon, Lock } from 'lucide-react';
 
 const MesImages = () => {
   const [images, setImages] = useState([]);
   const [selectedImage, setSelectedImage] = useState(null);
   const [showModal, setShowModal] = useState(false);
-  const [actionType, setActionType] = useState(''); // 'rename' or 'delete'
-  const [password, setPassword] = useState('');
   const [newDiseaseName, setNewDiseaseName] = useState('');
+  const [newDiseaseType, setNewDiseaseType] = useState('');
+  const [password, setPassword] = useState(''); // État pour le mot de passe
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    // Remplacer par l'appel API réel pour récupérer les images de l'utilisateur connecté
-    axios.get('/api/mes-images')
+  const API_BASE_URL = "http://127.0.0.1:8080";
+
+  const fetchImages = () => {
+    axios.get(`${API_BASE_URL}/api/diagnostics`)
       .then(res => setImages(res.data))
       .catch(() => setImages([]));
-  }, []);
-
-  const handleImageClick = (image, type) => {
-    setSelectedImage(image);
-    setActionType(type);
-    setShowModal(true);
-    setError('');
-    setPassword('');
-    setNewDiseaseName(type === 'rename' ? image.diseaseName : '');
   };
 
-  const handleModalClose = () => {
-    setShowModal(false);
-    setSelectedImage(null);
-    setActionType('');
-    setPassword('');
-    setNewDiseaseName('');
+  useEffect(() => {
+    fetchImages();
+  }, []);
+
+  const handleEditClick = (image) => {
+    setSelectedImage(image);
+    setNewDiseaseName(image.nom_maladie);
+    setNewDiseaseType(image.type_maladie);
+    setPassword(''); // On vide le mot de passe à chaque ouverture
     setError('');
+    setShowModal(true);
   };
 
   const handleConfirm = async () => {
     if (!password) {
-      setError('Mot de passe requis');
+      setError("Le mot de passe est obligatoire pour modifier.");
       return;
     }
+
     try {
-      if (actionType === 'delete') {
-        await axios.post('/api/supprimer-image', {
-          imageId: selectedImage.id,
-          password,
-        });
-        setImages(images.filter(img => img.id !== selectedImage.id));
-      } else if (actionType === 'rename') {
-        await axios.post('/api/renommer-image', {
-          imageId: selectedImage.id,
-          password,
-          newDiseaseName,
-        });
-        setImages(images.map(img => img.id === selectedImage.id ? { ...img, diseaseName: newDiseaseName } : img));
-      }
-      handleModalClose();
+      // 1. Récupérer l'ID de l'utilisateur (depuis le localStorage)
+      const user = JSON.parse(localStorage.getItem("user"));
+      const userId = user?.id;
+
+      // 2. Vérification du mot de passe via l'API
+      await axios.post(`${API_BASE_URL}/api/verifier-mdp`, {
+        utilisateur_id: userId,
+        mot_de_passe: password
+      });
+
+      // 3. Si OK, on fait la mise à jour réelle
+      await axios.put(`${API_BASE_URL}/api/diagnostic/${selectedImage.id}`, {
+        nom_maladie: newDiseaseName,
+        type_maladie: newDiseaseType
+      });
+
+      fetchImages();
+      setShowModal(false);
     } catch (e) {
-      setError('Mot de passe incorrect ou erreur serveur');
+      // Si l'erreur vient du mot de passe (401) ou autre
+      setError(e.response?.data?.detail || "Accès refusé ou erreur serveur");
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-5 relative overflow-hidden">
-      {/* Background animé */}
-      <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 animate-gradient"></div>
-
-      {/* Particules médicales */}
-      <div className="fixed inset-0 opacity-30 pointer-events-none">
-        <div className="absolute top-20 left-10 w-2 h-2 bg-cyan-400 rounded-full animate-float"></div>
-        <div className="absolute top-40 right-20 w-3 h-3 bg-blue-400 rounded-full animate-float-delayed"></div>
-        <div className="absolute bottom-32 left-1/4 w-2 h-2 bg-cyan-300 rounded-full animate-float"></div>
-        <div className="absolute bottom-20 right-1/3 w-2 h-2 bg-blue-300 rounded-full animate-float-delayed"></div>
-      </div>
-
-      {/* Carte principale */}
-      <div className="relative w-full max-w-6xl bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl shadow-2xl p-8 md:p-12 animate-float-card">
-        {/* Barre d'accent */}
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-400 via-blue-500 to-cyan-400 rounded-t-3xl"></div>
-
-        {/* En-tête */}
-        <div className="flex items-center gap-3 mb-8">
+    <div className="min-h-screen bg-slate-900 p-8 text-white">
+      <div className="max-w-6xl mx-auto bg-white/5 backdrop-blur-md rounded-3xl p-8 border border-white/10">
+        
+        <div className="flex items-center gap-3 mb-10">
           <ImageIcon className="w-8 h-8 text-cyan-400" />
-          <h2 className="text-3xl font-bold text-white">Mes images enregistrées</h2>
+          <h2 className="text-3xl font-bold">Galerie des Diagnostics</h2>
         </div>
 
-        {/* Grille d'images */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {images.length === 0 ? (
-            <div className="col-span-3 text-center text-blue-200 text-lg">Aucune image enregistrée pour le moment.</div>
-          ) : images.map(image => (
-            <div key={image.id} className="bg-white/20 border border-white/20 rounded-2xl shadow-lg p-5 flex flex-col items-center hover:bg-white/30 transition-all">
-              <img src={image.url} alt={image.diseaseName} className="w-48 h-48 object-cover rounded-xl mb-3 border-2 border-cyan-400/30 shadow group-hover:scale-105 transition-all cursor-pointer" onClick={() => handleImageClick(image, 'rename')} />
-              <div className="font-semibold text-white mb-1">Ajouté par : <span className="text-cyan-300">{image.ownerName}</span></div>
-              <div className="mb-2 text-blue-100">Maladie : <span className="font-semibold text-cyan-200">{image.diseaseName}</span></div>
-              <div className="flex gap-2 mt-2">
-                <button className="px-4 py-1 bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg font-medium shadow transition-all" onClick={() => handleImageClick(image, 'rename')}>Renommer</button>
-                <button className="px-4 py-1 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium shadow transition-all" onClick={() => handleImageClick(image, 'delete')}>Supprimer</button>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {images.map(img => (
+            <div key={img.id} className="bg-white/10 rounded-2xl overflow-hidden border border-white/10 hover:border-cyan-400/50 transition-all group">
+              <img 
+                src={`${API_BASE_URL}${img.image_url}`} 
+                alt={img.nom_maladie}
+                className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
+              />
+              <div className="p-4">
+                <h3 className="text-cyan-400 font-bold text-lg">{img.nom_maladie}</h3>
+                <p className="text-slate-300 text-sm">Type : {img.type_maladie}</p>
+                <p className="text-slate-400 text-xs mt-2 italic">Par Dr. {img.medecin}</p>
+                
+                <button 
+                  onClick={() => handleEditClick(img)}
+                  className="w-full mt-4 flex items-center justify-center gap-2 bg-cyan-600 hover:bg-cyan-500 py-2 rounded-lg transition-colors font-medium"
+                >
+                  <Edit size={16} /> Modifier
+                </button>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Modale de confirmation */}
+      {/* Modale de Modification Sécurisée */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div className="bg-white/90 p-8 rounded-2xl shadow-2xl w-96 border-t-4 border-cyan-400 animate-float-card">
-            <h3 className="text-xl font-bold mb-4 text-cyan-700 flex items-center gap-2">
-              {actionType === 'delete' ? 'Supprimer' : 'Renommer'} l'image
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-slate-800 border border-cyan-500/30 p-6 rounded-2xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+            <h3 className="text-xl font-bold mb-6 text-white flex items-center gap-2">
+              <Lock className="text-cyan-400" size={20} /> Validation Requise
             </h3>
-            {actionType === 'rename' && (
-              <input
-                type="text"
-                className="border p-2 w-full mb-2 rounded"
-                value={newDiseaseName}
-                onChange={e => setNewDiseaseName(e.target.value)}
-                placeholder="Nouveau nom de maladie"
-              />
-            )}
-            <input
-              type="password"
-              className="border p-2 w-full mb-2 rounded"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Mot de passe"
-            />
-            {error && <div className="text-red-500 mb-2">{error}</div>}
-            <div className="flex justify-end gap-2 mt-2">
-              <button className="px-4 py-1 bg-gray-300 hover:bg-gray-400 rounded-lg" onClick={handleModalClose}>Annuler</button>
-              <button className="px-4 py-1 bg-green-500 hover:bg-green-600 text-white rounded-lg" onClick={handleConfirm}>Confirmer</button>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-400 uppercase font-bold">Maladie</label>
+                <input
+                  type="text"
+                  className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-white mt-1 outline-none focus:border-cyan-400"
+                  value={newDiseaseName}
+                  onChange={e => setNewDiseaseName(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 uppercase font-bold">Type / Stade</label>
+                <input
+                  type="text"
+                  className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-white mt-1 outline-none focus:border-cyan-400"
+                  value={newDiseaseType}
+                  onChange={e => setNewDiseaseType(e.target.value)}
+                />
+              </div>
+
+              <div className="pt-2 border-t border-slate-700">
+                <label className="text-xs text-orange-400 uppercase font-bold">Votre mot de passe</label>
+                <input
+                  type="password"
+                  placeholder="Saisir pour confirmer"
+                  className="w-full bg-slate-900 border border-orange-500/50 p-3 rounded-xl text-white mt-1 outline-none focus:border-orange-400"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                />
+              </div>
+
+              {error && <div className="text-red-400 text-sm bg-red-400/10 p-3 rounded-lg border border-red-400/20">{error}</div>}
+
+              <div className="flex gap-3 pt-4">
+                <button 
+                  className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold transition-all text-sm"
+                  onClick={() => setShowModal(false)}
+                >
+                  Annuler
+                </button>
+                <button 
+                  className="flex-1 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 rounded-xl font-bold text-sm transition-all"
+                  onClick={handleConfirm}
+                >
+                  Confirmer
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
-
-      {/* Animations CSS */}
-      <style>{`
-        @keyframes gradient {
-          0%, 100% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-        }
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-20px); }
-        }
-        @keyframes float-delayed {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-15px); }
-        }
-        @keyframes float-card {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
-        }
-        .animate-gradient { animation: gradient 15s ease infinite; background-size: 400% 400%; }
-        .animate-float { animation: float 6s ease-in-out infinite; }
-        .animate-float-delayed { animation: float-delayed 8s ease-in-out infinite; }
-        .animate-float-card { animation: float-card 6s ease-in-out infinite; }
-      `}</style>
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Lock, ArrowRight, Stethoscope, Activity } from 'lucide-react';
-
+import axios from 'axios';
 
 export default function Login({ onLogin, isAuthenticated }) {
   const navigate = useNavigate();
@@ -18,13 +18,31 @@ export default function Login({ onLogin, isAuthenticated }) {
     }
   }, [isAuthenticated, navigate]);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    // Ici, tu peux ajouter la logique de vérification du login
-    // Si le login est réussi :
-    if (onLogin) onLogin();
-    // La redirection se fera via useEffect
+ const handleSubmit = async (e) => {
+  e.preventDefault();
+  
+  // Prépare exactement ce que FastAPI attend
+  const loginData = {
+    email: formData.email,
+    mot_de_passe: formData.password // On utilise le nom attendu par ton code Python
   };
+
+  try {
+    const response = await axios.post('http://127.0.0.1:8080/login', loginData);
+
+    if (response.data) {
+      console.log("Connecté !", response.data);
+      // On stocke l'utilisateur
+      localStorage.setItem('user', JSON.stringify(response.data));
+      if (onLogin) onLogin();
+      navigate('/diagnostic');
+    }
+  } catch (error) {
+    console.error("Erreur détaillée:", error);
+    // Si c'est encore une erreur de type "Network Error" sans status, c'est le CORS
+    alert("Erreur : " + (error.response?.data?.detail || "Connexion refusée par le serveur"));
+  }
+};
 
   const handleChange = (e) => {
     setFormData({

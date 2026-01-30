@@ -52,33 +52,45 @@ export default function Accueil() {
   const handleSave = async () => {
     setIsSaving(true);
     setSaveMessage('');
-    // Trouver la pathologie sélectionnée
-    const selectedCat = Object.keys(selections).find(cat => selections[cat]?.checked);
-    if (!selectedCat || !selectedFile) {
-      setSaveMessage('Veuillez sélectionner une pathologie et une image.');
+
+    // 1. Récupérer l'utilisateur connecté
+    const userData = JSON.parse(localStorage.getItem('user'));
+    
+    // 2. Trouver la pathologie sélectionnée
+    const selectedCatName = Object.keys(selections).find(cat => selections[cat]?.checked);
+    const catObj = categoryOptions.find(c => c.name === selectedCatName);
+
+    if (!selectedCatName || !selectedFile || !userData) {
+      setSaveMessage('Erreur : Assurez-vous d\'être connecté, d\'avoir choisi une image et une pathologie.');
       setIsSaving(false);
       return;
     }
-    // Trouver l'option/stade si présent
-    const catObj = categoryOptions.find(c => c.name === selectedCat);
-    const pathologie_id = categoryOptions.findIndex(c => c.name === selectedCat) + 1;
-    const option_stade = selections[selectedCat]?.stage || '';
+
+    // 3. Préparer les données (FormData est nécessaire pour l'envoi de fichier)
     const formData = new FormData();
-    formData.append('pathologie_id', pathologie_id);
-    formData.append('option_stade', option_stade);
     formData.append('file', selectedFile);
+    formData.append('nom_maladie', catObj.fullName);
+    formData.append('type_maladie', selections[selectedCatName]?.stage || 'Standard');
+    formData.append('utilisateur_id', userData.id || 1); // ID du médecin
+    formData.append('nom_medecin_diagnostiqueur', `${userData.prenom} ${userData.nom}`);
+
     try {
-      await axios.post('/api/diagnostic/', formData, {
+      // 4. Envoi au backend (Port 8080)
+      const response = await axios.post('http://127.0.0.1:8080/api/diagnostic/', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setSaveMessage('Image enregistrée avec succès !');
+
+      setSaveMessage('Diagnostic enregistré avec succès !');
+      // Réinitialisation
       setSelectedImage(null);
       setSelectedFile(null);
       setSelections({});
     } catch (e) {
-      setSaveMessage("Erreur lors de l'enregistrement.");
+      console.error(e);
+      setSaveMessage("Erreur lors de l'enregistrement au serveur.");
+    } finally {
+      setIsSaving(false);
     }
-    setIsSaving(false);
   };
 
   const handleCheckboxChange = (catName, checked) => {
