@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Accueil from './pages/Accueil';
@@ -8,6 +8,11 @@ import MesImages from './pages/MesImages';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    setIsAuthenticated(Boolean(token));
+  }, []);
 
   // Callback à passer au composant Login
   const handleLogin = () => {

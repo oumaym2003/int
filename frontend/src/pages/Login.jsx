@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { User, Lock, ArrowRight, Stethoscope, Activity } from 'lucide-react';
 
@@ -10,6 +11,8 @@ export default function Login({ onLogin, isAuthenticated }) {
     password: ''
   });
   const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   // Si déjà authentifié, redirige vers /diagnostic
   React.useEffect(() => {
@@ -18,12 +21,32 @@ export default function Login({ onLogin, isAuthenticated }) {
     }
   }, [isAuthenticated, navigate]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // Ici, tu peux ajouter la logique de vérification du login
-    // Si le login est réussi :
-    if (onLogin) onLogin();
-    // La redirection se fera via useEffect
+    setIsSubmitting(true);
+    setErrorMessage('');
+    try {
+      const response = await axios.post('/api/login', {
+        email: formData.email,
+        password: formData.password
+      }, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      const token = response?.data?.access_token;
+      if (token) {
+        localStorage.setItem('access_token', token);
+        localStorage.setItem('uid', response?.data?.uid);
+      }
+      if (onLogin) onLogin();
+      navigate('/diagnostic');
+    } catch (error) {
+      const detail = error?.response?.data?.detail;
+      setErrorMessage(detail || 'Identifiants invalides');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleChange = (e) => {
@@ -190,14 +213,20 @@ export default function Login({ onLogin, isAuthenticated }) {
               {/* Bouton de connexion */}
               <button
                 type="submit"
-                className="group relative w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold py-4 rounded-xl shadow-lg shadow-cyan-500/30 hover:shadow-xl hover:shadow-cyan-500/50 hover:-translate-y-0.5 transition-all duration-300 overflow-hidden"
+                className="group relative w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold py-4 rounded-xl shadow-lg shadow-cyan-500/30 hover:shadow-xl hover:shadow-cyan-500/50 hover:-translate-y-0.5 transition-all duration-300 overflow-hidden disabled:opacity-70 disabled:hover:translate-y-0"
+                disabled={isSubmitting}
               >
                 <span className="relative z-10 flex items-center justify-center gap-2">
-                  Se connecter
+                  {isSubmitting ? 'Connexion...' : 'Se connecter'}
                   <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                 </span>
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-700"></div>
               </button>
+              {errorMessage && (
+                <div className="text-center text-red-300 text-sm">
+                  {errorMessage}
+                </div>
+              )}
             </form>
 
             {/* Pied de page */}

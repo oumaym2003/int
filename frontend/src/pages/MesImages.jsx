@@ -12,8 +12,12 @@ const MesImages = () => {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    // Remplacer par l'appel API réel pour récupérer les images de l'utilisateur connecté
-    axios.get('/api/mes-images')
+    const token = localStorage.getItem('access_token');
+    axios.get('/api/mes-images', {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
       .then(res => setImages(res.data))
       .catch(() => setImages([]));
   }, []);
@@ -37,28 +41,35 @@ const MesImages = () => {
   };
 
   const handleConfirm = async () => {
-    if (!password) {
-      setError('Mot de passe requis');
+    if (!selectedImage?.id) {
+      setError('ID image manquant');
       return;
     }
     try {
+      const token = localStorage.getItem('access_token');
       if (actionType === 'delete') {
         await axios.post('/api/supprimer-image', {
           imageId: selectedImage.id,
-          password,
+        }, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
         });
         setImages(images.filter(img => img.id !== selectedImage.id));
       } else if (actionType === 'rename') {
         await axios.post('/api/renommer-image', {
           imageId: selectedImage.id,
-          password,
           newDiseaseName,
+        }, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
         });
         setImages(images.map(img => img.id === selectedImage.id ? { ...img, diseaseName: newDiseaseName } : img));
       }
       handleModalClose();
     } catch (e) {
-      setError('Mot de passe incorrect ou erreur serveur');
+      setError('Erreur serveur: ' + (e?.response?.data?.detail || e.message));
     }
   };
 

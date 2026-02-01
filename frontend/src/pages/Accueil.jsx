@@ -64,19 +64,24 @@ export default function Accueil() {
     const pathologie_id = categoryOptions.findIndex(c => c.name === selectedCat) + 1;
     const option_stade = selections[selectedCat]?.stage || '';
     const formData = new FormData();
-    formData.append('pathologie_id', pathologie_id);
-    formData.append('option_stade', option_stade);
+    formData.append('nom_maladie', selectedCat);
+    formData.append('type_maladie', option_stade);
+    formData.append('nom_medecin_diagnostiqueur', localStorage.getItem('nomMedecin') || 'Médecin');
     formData.append('file', selectedFile);
     try {
+      const token = localStorage.getItem('access_token');
       await axios.post('/api/diagnostic/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${token}`
+        },
       });
       setSaveMessage('Image enregistrée avec succès !');
       setSelectedImage(null);
       setSelectedFile(null);
       setSelections({});
     } catch (e) {
-      setSaveMessage("Erreur lors de l'enregistrement.");
+      setSaveMessage("Erreur lors de l'enregistrement: " + (e?.response?.data?.detail || e.message));
     }
     setIsSaving(false);
   };

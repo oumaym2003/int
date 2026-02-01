@@ -1,0 +1,12 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "nom": "Doe",
+      "prenom": "John",
+      "email": "test@example.com",
+      "hashedPassword": "$2a$10$Zy.C9prY2eSa1tjmHMQH0uJZLOfnu7/JvHv4D/uKZ6mkwL4KQGNF6"
+    }
+  ],
+  "diagnostics": []
+}
