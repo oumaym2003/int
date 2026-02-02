@@ -1,23 +1,32 @@
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change_me_please';
+const SECRET_KEY = process.env.SECRET_KEY || "votre_cle_secrete_a_changer";
+const ALGORITHM = "HS256";
 
-async function hashPassword(password) {
-  const salt = await bcrypt.genSalt(10);
-  return bcrypt.hash(password, salt);
+async function verifyPassword(plainPassword, hashedPassword) {
+  return await bcrypt.compare(plainPassword, hashedPassword);
 }
 
-async function verifyPassword(password, hash) {
-  return bcrypt.compare(password, hash);
+async function getPasswordHash(password) {
+  return await bcrypt.hash(password, 10);
 }
 
-function createToken(payload) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
+function createAccessToken(data) {
+  return jwt.sign(data, SECRET_KEY, { algorithm: ALGORITHM, expiresIn: '24h' });
+}
+
+function verifyToken(token) {
+  try {
+    return jwt.verify(token, SECRET_KEY);
+  } catch (error) {
+    return null;
+  }
 }
 
 module.exports = {
-  hashPassword,
   verifyPassword,
-  createToken
+  getPasswordHash,
+  createAccessToken,
+  verifyToken
 };

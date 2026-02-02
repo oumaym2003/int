@@ -1,5 +1,24 @@
-const { auth, db, storage } = require('./firebase');
+const { auth, firestore, storage } = require('./firebase');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+const useLocalStorage = String(process.env.USE_LOCAL_STORAGE || '').toLowerCase() === 'true';
+
+function ensureDir(dirPath) {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+}
+
+function sanitizePart(value) {
+  return String(value || 'NA')
+    .normalize('NFKD')
+    .replace(/[^\w\s-]/g, '')
+    .trim()
+    .replace(/[\s-]+/g, '_')
+    .toLowerCase();
+}
 
 // Créer un utilisateur avec Firebase Authentication
 async function createUser(nom, prenom, email, password) {
@@ -11,7 +30,7 @@ async function createUser(nom, prenom, email, password) {
     });
 
     // Stocker les infos supplémentaires dans Realtime DB
-    await db.ref(`users/${userRecord.uid}`).set({
+    await firestore.collection('users').doc(userRecord.uid).set({
       uid: userRecord.uid,
       nom,
       prenom,
@@ -41,35 +60,69 @@ async function loginUser(email, password) {
 async function createDiagnostic(utilisateurId, nomMaladie, typeMaladie, imageFile, nomMedecin) {
   try {
     const diagnosticId = crypto.randomUUID();
-    
-    // Uploader l'image vers Firebase Storage
-    const bucket = storage.bucket();
-    const file = bucket.file(`diagnostics/${diagnosticId}/${imageFile.originalname}`);
-    
-    await file.save(imageFile.buffer, {
-      metadata: {
-        contentType: imageFile.mimetype
-      }
+
+    const safeNomMaladie = sanitizePart(nomMaladie);
+    const safeTypeMaladie = sanitizePart(typeMaladie);
+    const safeMedecinId = sanitizePart(utilisateurId);
+
+    const counterKey = `${safeNomMaladie}_${safeTypeMaladie}_${safeMedecinId}`;
+    const counterRef = firestore.collection('counters').doc(counterKey);
+    const compteur = await firestore.runTransaction(async (tx) => {
+      const snap = await tx.get(counterRef);
+      const current = snap.exists ? Number(snap.data().value || 0) : 0;
+      const next = current + 1;
+      tx.set(counterRef, { value: next }, { merge: true });
+      return next;
     });
 
-    // Obtenir l'URL de téléchargement public
-    const [url] = await file.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 jours
-    });
+    const ext = path.extname(imageFile.originalname || '').toLowerCase() || '.jpg';
+    const fileBaseName = `${safeNomMaladie}_${safeTypeMaladie}_${safeMedecinId}_${compteur}`;
+    const renamedFileName = `${fileBaseName}${ext}`;
+
+    let url = '';
+    let imagePath = `diagnostics/${renamedFileName}`;
+
+    if (useLocalStorage) {
+      // Sauvegarde locale (pas besoin de facturation Firebase Storage)
+      const uploadsRoot = path.join(__dirname, '..', 'uploads');
+      const targetDir = path.join(uploadsRoot, 'diagnostics');
+      ensureDir(targetDir);
+      const targetPath = path.join(targetDir, renamedFileName);
+      fs.writeFileSync(targetPath, imageFile.buffer);
+      url = `/uploads/diagnostics/${encodeURIComponent(renamedFileName)}`;
+    } else {
+      // Uploader l'image vers Firebase Storage
+      const bucket = storage.bucket();
+      const file = bucket.file(imagePath);
+
+      await file.save(imageFile.buffer, {
+        metadata: {
+          contentType: imageFile.mimetype
+        }
+      });
+
+      // Obtenir l'URL de téléchargement public
+      const [signedUrl] = await file.getSignedUrl({
+        version: 'v4',
+        action: 'read',
+        expires: Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 jours
+      });
+      url = signedUrl;
+    }
 
     // Calculer le hash de l'image
     const imageHash = crypto.createHash('sha256').update(imageFile.buffer).digest('hex');
 
     // Sauvegarder les métadonnées dans Realtime DB
-    await db.ref(`diagnostics/${diagnosticId}`).set({
+    await firestore.collection('diagnostics').doc(diagnosticId).set({
       id: diagnosticId,
       utilisateurId,
       nomMaladie,
       typeMaladie,
       pathImageOriginale: imageFile.originalname,
-      pathImageRenommee: `${diagnosticId}/${imageFile.originalname}`,
+      pathImageRenommee: imagePath,
+      compteurClasse: compteur,
+      nomFichierRenomme: renamedFileName,
       nomMedecinDiagnostiqueur: nomMedecin,
       imageHash,
       imageUrl: url,
@@ -90,12 +143,10 @@ async function createDiagnostic(utilisateurId, nomMaladie, typeMaladie, imageFil
 // Récupérer tous les diagnostics d'un utilisateur
 async function getUserDiagnostics(utilisateurId) {
   try {
-    const snapshot = await db.ref('diagnostics').orderByChild('utilisateurId').equalTo(utilisateurId).once('value');
-    const diagnostics = [];
-    snapshot.forEach(child => {
-      diagnostics.push(child.val());
-    });
-    return diagnostics;
+    const snapshot = await firestore.collection('diagnostics')
+      .where('utilisateurId', '==', utilisateurId)
+      .get();
+    return snapshot.docs.map(doc => doc.data());
   } catch (error) {
     throw new Error(`Erreur récupération diagnostics: ${error.message}`);
   }
@@ -104,7 +155,7 @@ async function getUserDiagnostics(utilisateurId) {
 // Supprimer un diagnostic
 async function deleteDiagnostic(diagnosticId) {
   try {
-    await db.ref(`diagnostics/${diagnosticId}`).remove();
+    await firestore.collection('diagnostics').doc(diagnosticId).delete();
     return true;
   } catch (error) {
     throw new Error(`Erreur suppression diagnostic: ${error.message}`);
@@ -114,7 +165,7 @@ async function deleteDiagnostic(diagnosticId) {
 // Renommer un diagnostic
 async function updateDiagnostic(diagnosticId, nomMaladie) {
   try {
-    await db.ref(`diagnostics/${diagnosticId}`).update({
+    await firestore.collection('diagnostics').doc(diagnosticId).update({
       nomMaladie
     });
     return true;

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { signIn } from '../firebaseClient';
 import { User, Lock, ArrowRight, Stethoscope, Activity } from 'lucide-react';
 
 
@@ -26,24 +26,18 @@ export default function Login({ onLogin, isAuthenticated }) {
     setIsSubmitting(true);
     setErrorMessage('');
     try {
-      const response = await axios.post('/api/login', {
-        email: formData.email,
-        password: formData.password
-      }, {
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      const token = response?.data?.access_token;
+      const result = await signIn(formData.email, formData.password);
+      const token = await result.user.getIdToken();
       if (token) {
         localStorage.setItem('access_token', token);
-        localStorage.setItem('uid', response?.data?.uid);
+        localStorage.setItem('uid', result.user.uid);
+        localStorage.setItem('nomMedecin', result.user.displayName || '');
       }
       if (onLogin) onLogin();
       navigate('/diagnostic');
     } catch (error) {
-      const detail = error?.response?.data?.detail;
-      setErrorMessage(detail || 'Identifiants invalides');
+      const message = error?.message || 'Identifiants invalides';
+      setErrorMessage(message);
     } finally {
       setIsSubmitting(false);
     }

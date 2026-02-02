@@ -1,6 +1,6 @@
 const express = require('express');
 const multer = require('multer');
-const { auth } = require('./firebase');
+const { auth, firestore } = require('./firebase');
 const { createUser, loginUser, createDiagnostic, getUserDiagnostics, deleteDiagnostic, updateDiagnostic } = require('./firebaseService');
 
 const router = express.Router();
@@ -116,14 +116,11 @@ router.get('/mes-images', verifyFirebaseToken, async (req, res) => {
 // GET IMAGE
 router.get('/image/:id', async (req, res) => {
   try {
-    const { db } = require('./firebase');
-    const snapshot = await db.ref(`diagnostics/${req.params.id}`).once('value');
-    const diagnostic = snapshot.val();
-    
-    if (!diagnostic) {
+    const doc = await firestore.collection('diagnostics').doc(req.params.id).get();
+    if (!doc.exists) {
       return res.status(404).json({ detail: 'Image introuvable' });
     }
-
+    const diagnostic = doc.data();
     return res.redirect(diagnostic.imageUrl);
   } catch (error) {
     return res.status(500).json({ detail: error.message });
