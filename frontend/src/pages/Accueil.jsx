@@ -75,8 +75,8 @@ export default function Accueil() {
     formData.append('nom_medecin_diagnostiqueur', `${userData.prenom} ${userData.nom}`);
 
     try {
-      // 4. Envoi au backend (Port 8080)
-      const response = await axios.post('http://127.0.0.1:8080/api/diagnostic/', formData, {
+      // 4. Envoi au backend (Port 8000)
+      const response = await axios.post('http://127.0.0.1:8000/api/diagnostic/', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 

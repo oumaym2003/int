@@ -11,7 +11,7 @@ const MesImages = () => {
   const [password, setPassword] = useState(''); // État pour le mot de passe
   const [error, setError] = useState('');
 
-  const API_BASE_URL = "http://127.0.0.1:8080";
+  const API_BASE_URL = "http://127.0.0.1:8000";
 
   const fetchImages = () => {
     axios.get(`${API_BASE_URL}/api/diagnostics`)

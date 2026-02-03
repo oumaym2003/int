@@ -28,7 +28,7 @@ export default function Login({ onLogin, isAuthenticated }) {
   };
 
   try {
-    const response = await axios.post('http://127.0.0.1:8080/login', loginData);
+    const response = await axios.post('http://127.0.0.1:8000/login', loginData);
 
     if (response.data) {
       console.log("Connecté !", response.data);

@@ -8,6 +8,10 @@ from sqlalchemy.orm import Session
 
 import models
 import database
+
+# Créer les tables au démarrage
+models.Base.metadata.create_all(bind=database.engine)
+
 app = FastAPI() # Cela définit "app"
 app.add_middleware(
     CORSMiddleware,
@@ -116,12 +120,37 @@ def get_db():
     finally:
         db.close()
 
-@router.post("/register", response_model=schemas.UserOut)
-def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    db_user = crud.get_user_by_email(db, user.email)
-    if db_user:
+@router.post("/register")
+def register(data: dict, db: Session = Depends(get_db)):
+    # Vérifier si l'email existe déjà
+    user_existant = db.query(models.Utilisateur).filter(
+        models.Utilisateur.email == data.get('email')
+    ).first()
+    
+    if user_existant:
         raise HTTPException(status_code=400, detail="Email déjà utilisé")
-    return crud.create_user(db, user)
+    
+    # Créer un nouvel utilisateur
+    nouvel_utilisateur = models.Utilisateur(
+        nom=data.get('nom'),
+        prenom=data.get('prenom'),
+        email=data.get('email'),
+        mot_de_passe=data.get('mot_de_passe')
+    )
+    
+    db.add(nouvel_utilisateur)
+    db.commit()
+    db.refresh(nouvel_utilisateur)
+    
+    return {
+        "message": "Inscription réussie",
+        "user": {
+            "id": nouvel_utilisateur.id,
+            "nom": nouvel_utilisateur.nom,
+            "prenom": nouvel_utilisateur.prenom,
+            "email": nouvel_utilisateur.email
+        }
+    }
 
 @router.post("/login")
 def login(data: dict, db: Session = Depends(get_db)):
@@ -168,8 +197,6 @@ def login(data: dict, db: Session = Depends(database.get_db)):
     if not user or user.mot_de_passe != data.get('mot_de_passe'):
         raise HTTPException(status_code=401, detail="Identifiants incorrects")
     return {"id": user.id, "nom": user.nom, "prenom": user.prenom}
-
-correcte 
 
 
 
@@ -424,3 +451,7 @@ def verifier_mot_de_passe(data: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Mot de passe incorrect")
     
     return {"status": "success", "message": "Mot de passe valide"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
