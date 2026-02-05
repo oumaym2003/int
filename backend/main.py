@@ -310,25 +310,52 @@ async def create_diagnostic(
         logger.error(f"ERREUR : {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 """
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Response
+import os
+import hashlib
+import datetime
+import io
+import logging
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
-import os, logging, datetime, hashlib, re, io
-import models, database
+from PIL import Image
+
+import models
+import database
+
+# --- 1. CONFIGURATION STRICTE DES CHEMINS ---
+# On récupère le chemin absolu du dossier où se trouve main.py (le dossier backend)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# On définit les sous-dossiers à l'intérieur de 'uploads'
+UPLOAD_ROOT = os.path.join(BASE_DIR, "uploads")
+DIR_ORIGINAUX = os.path.join(UPLOAD_ROOT, "originaux")
+DIR_CLASSES = os.path.join(UPLOAD_ROOT, "classes")
+
+# Création automatique et récursive des dossiers
+os.makedirs(DIR_ORIGINAUX, exist_ok=True)
+os.makedirs(DIR_CLASSES, exist_ok=True)
 
 app = FastAPI()
 
-# --- 1. CONFIGURATION CORS ---
-# On autorise tout pour le développement afin d'éviter les blocages React
+# --- 2. CONFIGURATION DU SERVEUR DE FICHIERS STATIQUES ---
+# On expose le dossier 'uploads' pour que http://127.0.0.1:8000/uploads/ soit valide
+app.mount("/uploads", StaticFiles(directory=UPLOAD_ROOT), name="uploads")
+
+# --- 3. CONFIGURATION CORS ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- 2. DEPENDANCE DB ---
+# --- 4. LOGGING ET DB ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 def get_db():
     db = database.SessionLocal()
     try:
@@ -336,58 +363,28 @@ def get_db():
     finally:
         db.close()
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# --- 5. ROUTES ---
 
-# --- 3. ROUTE LOGIN ---
-@app.post("/login")
-def login(data: dict, db: Session = Depends(get_db)):
-    email = data.get('email')
-    password = data.get('mot_de_passe')
-    
-    user = db.query(models.Utilisateur).filter(models.Utilisateur.email == email).first()
-    
-    if not user or user.mot_de_passe != password:
-        raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
-        
-    return {
-        "id": user.id,
-        "nom": user.nom,
-        "prenom": user.prenom,
-        "email": user.email
-    }
-
-# --- 4. RÉCUPÉRER TOUS LES DIAGNOSTICS (Pour la liste React) ---
 @app.get("/api/diagnostics")
 def get_all_diagnostics(db: Session = Depends(get_db)):
-    # Récupération triée par date d'insertion décroissante
-    diagnostics = db.query(models.Diagnostic).order_by(models.Diagnostic.date_insertion_bdd.desc()).all()
+    diagnostics = db.query(models.Diagnostic).order_by(models.Diagnostic.id.desc()).all()
     
-    return [{
-        "id": d.id,
-        "nom_maladie": d.nom_maladie,
-        "type_maladie": d.type_maladie,
-        "medecin": d.nom_medecin_diagnostiqueur,
-        "date": d.date_diagnostic,
-        "image_url": f"/api/image/{d.id}" 
-    } for d in diagnostics]
+    resultat = []
+    for d in diagnostics:
+        # On n'envoie que le chemin relatif sans le http://...
+        # Exemple: "uploads/classes/image.jpg"
+        clean_url = d.path_image_final.replace("\\", "/") if d.path_image_final else ""
 
-# --- 5. MODIFIER UN DIAGNOSTIC ---
-@app.put("/api/diagnostic/{diag_id}")
-def update_diagnostic(diag_id: int, data: dict, db: Session = Depends(get_db)):
-    diag = db.query(models.Diagnostic).filter(models.Diagnostic.id == diag_id).first()
-    
-    if not diag:
-        raise HTTPException(status_code=404, detail="Diagnostic non trouvé")
-    
-    # Mise à jour via les données envoyées par React (noms de clés adaptés)
-    diag.nom_maladie = data.get("nom_maladie", diag.nom_maladie)
-    diag.type_maladie = data.get("type_maladie", diag.type_maladie)
-        
-    db.commit()
-    return {"status": "success", "message": "Annotation mise à jour"}
+        resultat.append({
+            "id": d.id,
+            "nom_maladie": d.nom_maladie,
+            "type_maladie": d.type_maladie,
+            "medecin": d.nom_medecin_diagnostiqueur,
+            "date": d.date_diagnostique,
+            "image_url": clean_url # On envoie juste le chemin ici
+        })
+    return resultat
 
-# --- 6. CRÉER UN DIAGNOSTIC (Upload) ---
 @app.post("/api/diagnostic/")
 async def create_diagnostic(
     file: UploadFile = File(...),
@@ -398,59 +395,79 @@ async def create_diagnostic(
     db: Session = Depends(get_db)
 ):
     try:
+        # 1. Lire le contenu et générer le Hash (Empreinte digitale de l'image)
         image_bytes = await file.read()
         sha256_hash = hashlib.sha256(image_bytes).hexdigest()
 
-        extension = os.path.splitext(file.filename)[1]
-        timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-        nom_renomme = f"{nom_maladie.lower()}_{utilisateur_id}_{timestamp}{extension}"
+        # 2. VÉRIFICATION DE DUPLICATION
+        image_existante = db.query(models.Diagnostic).filter(models.Diagnostic.image_hash == sha256_hash).first()
+        
+        if image_existante:
+            # Si l'image existe déjà, on renvoie une erreur 400
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cette image a déjà été diagnostiquée (ID: {image_existante.id}, Maladie: {image_existante.nom_maladie})"
+            )
 
+        # 3. Si l'image est nouvelle, on continue le processus...
+        compte = db.query(models.Diagnostic).filter(models.Diagnostic.nom_maladie == nom_maladie).count()
+        nouveau_numero = compte + 1
+
+        # Nettoyage des noms (pour éviter les problèmes d'accents/espaces)
+        nom_base = nom_maladie.lower().replace(" ", "_")
+        type_base = type_maladie.lower().replace(" ", "_")
+        nom_renomme_final = f"{nom_base}_{type_base}_{utilisateur_id}_{nouveau_numero}.jpg"
+
+        # Sauvegarde des fichiers
+        path_physique_original = os.path.join(DIR_ORIGINAUX, file.filename)
+        with open(path_physique_original, "wb") as f_orig:
+            f_orig.write(image_bytes)
+
+        path_physique_classe = os.path.join(DIR_CLASSES, nom_renomme_final)
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img.save(path_physique_classe, "JPEG", quality=90)
+
+        # Insertion en BDD
         nouveau_diag = models.Diagnostic(
             nom_maladie=nom_maladie,
             type_maladie=type_maladie,
             nom_medecin_diagnostiqueur=nom_medecin_diagnostiqueur,
             utilisateur_id=utilisateur_id,
-            image_blob=image_bytes, # Stockage binaire direct
             nom_image_originale=file.filename,
-            nom_image_renommee=nom_renomme,
-            image_hash=sha256_hash,
-            path_image_contour="",
-            date_diagnostic=datetime.date.today(),
+            nom_image_renommee=nom_renomme_final,
+            path_image_final=f"uploads/classes/{nom_renomme_final}",
+            image_hash=sha256_hash, # On stocke le hash ici
+            date_diagnostique=datetime.date.today(),
             date_insertion_bdd=datetime.datetime.now()
         )
         
         db.add(nouveau_diag)
         db.commit()
-        db.refresh(nouveau_diag)
+        
+        return {"status": "success", "message": "Nouveau diagnostic enregistré"}
 
-        return {"status": "success", "id": nouveau_diag.id}
-
+    except HTTPException as he:
+        raise he # On laisse passer l'erreur 400 de duplication
     except Exception as e:
         db.rollback()
-        logger.error(f"Erreur Upload : {str(e)}")
+        logger.error(f"Erreur : {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-# --- 7. AFFICHER L'IMAGE ---
-@app.get("/api/image/{diag_id}")
-async def get_diagnostic_image(diag_id: int, db: Session = Depends(get_db)):
-    diag = db.query(models.Diagnostic).filter(models.Diagnostic.id == diag_id).first()
-    if not diag or not diag.image_blob:
-        raise HTTPException(status_code=404, detail="Image non trouvée")
     
-    return Response(content=diag.image_blob, media_type="image/jpeg")
+@app.post("/login")
+def login(data: dict, db: Session = Depends(get_db)):
+    email = data.get('email')
+    password = data.get('mot_de_passe')
+    user = db.query(models.Utilisateur).filter(models.Utilisateur.email == email).first()
+    if not user or user.mot_de_passe != password:
+        raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
+    return {"id": user.id, "nom": user.nom, "prenom": user.prenom, "email": user.email}
 
-# --- ROUTE DE VÉRIFICATION DE MOT DE PASSE ---
 @app.post("/api/verifier-mdp")
 def verifier_mot_de_passe(data: dict, db: Session = Depends(get_db)):
-    user_id = data.get("utilisateur_id")
-    password_a_verifier = data.get("mot_de_passe")
-    
-    user = db.query(models.Utilisateur).filter(models.Utilisateur.id == user_id).first()
-    
-    if not user or user.mot_de_passe != password_a_verifier:
+    user = db.query(models.Utilisateur).filter(models.Utilisateur.id == data.get("utilisateur_id")).first()
+    if not user or user.mot_de_passe != data.get("mot_de_passe"):
         raise HTTPException(status_code=401, detail="Mot de passe incorrect")
-    
-    return {"status": "success", "message": "Mot de passe valide"}
+    return {"status": "success"}
 
 if __name__ == "__main__":
     import uvicorn
