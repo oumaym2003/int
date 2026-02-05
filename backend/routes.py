@@ -1,7 +1,7 @@
 from fastapi import FastAPI, APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 # Correction des imports (enlève le "." si tu as une erreur "ImportError")
-import schemas, crud, database, auth, models 
+from . import schemas, crud, database, auth, models 
 
 app = FastAPI()
 router = APIRouter()

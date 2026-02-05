@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Edit, Image as ImageIcon, Lock, X, AlertCircle, CheckCircle2, UserCircle } from 'lucide-react';
+import { Edit, Image as ImageIcon, Lock, X, AlertCircle, UserCircle, Trash2 } from 'lucide-react';
 
 const categoryOptions = [
   { name: 'OMA', fullName: 'Otite Moyenne Aiguë', options: ['cong', 'sup', 'perf'] },
@@ -13,41 +13,41 @@ const categoryOptions = [
 ];
 
 const MesImages = () => {
-  const [groupedImages, setGroupedImages] = useState([]); // Contiendra les images groupées
+  const [groupedImages, setGroupedImages] = useState([]);
   const [selectedImage, setSelectedImage] = useState(null);
   const [showModal, setShowModal] = useState(false);
-  
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
   const [newDiseaseName, setNewDiseaseName] = useState('');
   const [newDiseaseType, setNewDiseaseType] = useState('');
   const [customDiseaseName, setCustomDiseaseName] = useState('');
-  
+
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [step, setStep] = useState(1);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState('');
 
   const API_BASE_URL = "http://127.0.0.1:8000";
 
-  // --- LOGIQUE DE REGROUPEMENT ---
   const fetchImages = () => {
     axios.get(`${API_BASE_URL}/api/diagnostics`)
       .then(res => {
         const rawData = res.data;
-        
-        // On utilise un objet pour grouper par image_hash
         const groups = rawData.reduce((acc, current) => {
           const hash = current.image_hash;
           if (!acc[hash]) {
             acc[hash] = {
               image_url: current.image_url,
               image_hash: hash,
-              avis: [] // Liste de tous les diagnostics pour cette image
+              avis: []
             };
           }
           acc[hash].avis.push(current);
           return acc;
         }, {});
 
-        // On transforme l'objet en tableau pour le map
         setGroupedImages(Object.values(groups));
       })
       .catch(err => console.error("Erreur de chargement:", err));
@@ -67,6 +67,13 @@ const MesImages = () => {
     setShowModal(true);
   };
 
+  const handleDeleteClick = (diagnostic) => {
+    setDeleteTarget(diagnostic);
+    setDeletePassword('');
+    setDeleteError('');
+    setShowDeleteModal(true);
+  };
+
   const goToConfirmation = () => {
     if (newDiseaseName === 'Autre' && !customDiseaseName.trim()) {
       setError("Veuillez saisir le nom de la maladie.");
@@ -77,7 +84,7 @@ const MesImages = () => {
   };
 
   const handleConfirm = async () => {
-    setError(''); 
+    setError('');
     if (!password) {
       setError("Le mot de passe est obligatoire.");
       return;
@@ -91,7 +98,7 @@ const MesImages = () => {
       }
 
       const verifData = {
-        utilisateur_id: parseInt(user.id), 
+        utilisateur_id: parseInt(user.id),
         mot_de_passe: password.trim()
       };
 
@@ -100,10 +107,10 @@ const MesImages = () => {
       const finalName = newDiseaseName === 'Autre' ? customDiseaseName.trim() : newDiseaseName;
       const updateData = {
         nom_maladie: finalName,
-        type_maladie: newDiseaseType || 'Standard'
+        type_maladie: newDiseaseType || 'Standard',
+        utilisateur_id: parseInt(user.id)
       };
 
-      // Utilisation de l'ID du diagnostic sélectionné
       await axios.put(`${API_BASE_URL}/api/diagnostic/${selectedImage.id}`, updateData);
 
       fetchImages();
@@ -113,7 +120,46 @@ const MesImages = () => {
     }
   };
 
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) {
+      setDeleteError("Aucun avis sélectionné.");
+      return;
+    }
+    setDeleteError('');
+    if (!deletePassword) {
+      setDeleteError("Le mot de passe est obligatoire.");
+      return;
+    }
+
+    try {
+      const user = JSON.parse(localStorage.getItem("user"));
+      if (!user || !user.id) {
+        setDeleteError("Session expirée. Reconnectez-vous.");
+        return;
+      }
+
+      const verifData = {
+        utilisateur_id: parseInt(user.id),
+        mot_de_passe: deletePassword.trim()
+      };
+
+      await axios.post(`${API_BASE_URL}/api/verifier-mdp`, verifData);
+
+      await axios.delete(`${API_BASE_URL}/api/diagnostic/${deleteTarget.id}`, {
+        data: { utilisateur_id: parseInt(user.id) }
+      });
+
+      fetchImages();
+      setShowDeleteModal(false);
+    } catch (e) {
+      setDeleteError(e.response?.data?.detail || "Mot de passe incorrect ou erreur serveur.");
+    }
+  };
+
   const currentOptions = categoryOptions.find(c => c.name === newDiseaseName)?.options || [];
+
+  const currentUser = JSON.parse(localStorage.getItem("user") || "null");
+  const currentUserId = currentUser?.id ? parseInt(currentUser.id) : null;
 
   return (
     <div className="min-h-screen bg-slate-900 p-8 text-white">
@@ -126,7 +172,6 @@ const MesImages = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {groupedImages.map((group, idx) => (
             <div key={idx} className="bg-white/10 rounded-3xl overflow-hidden border border-white/10 flex flex-col shadow-2xl">
-              {/* IMAGE UNIQUE */}
               <div className="h-56 bg-black relative">
                 <img 
                   src={encodeURI(`${API_BASE_URL}/${group.image_url}`)} 
@@ -138,7 +183,6 @@ const MesImages = () => {
                 </div>
               </div>
 
-              {/* LISTE DES AVIS (MEDECINS) */}
               <div className="p-5 flex-1 flex flex-col space-y-4">
                 <div className="space-y-3">
                   {group.avis.map(avi => (
@@ -153,14 +197,23 @@ const MesImages = () => {
                           <p className="text-sm font-bold text-cyan-400">{avi.nom_maladie}</p>
                           <p className="text-[10px] text-slate-400 italic">{avi.type_maladie}</p>
                         </div>
-                        
-                        {/* Bouton modifier pour chaque avis spécifique */}
-                        <button 
-                          onClick={() => handleEditClick(avi)}
-                          className="p-2 bg-white/10 rounded-lg hover:bg-cyan-500/20 hover:text-cyan-400 transition-all"
-                        >
-                          <Edit size={12} />
-                        </button>
+
+                        {currentUserId === avi.utilisateur_id && (
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => handleEditClick(avi)}
+                              className="p-2 bg-white/10 rounded-lg hover:bg-cyan-500/20 hover:text-cyan-400 transition-all"
+                            >
+                              <Edit size={12} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteClick(avi)}
+                              className="p-2 bg-white/10 rounded-lg hover:bg-red-500/20 hover:text-red-400 transition-all"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -171,7 +224,6 @@ const MesImages = () => {
         </div>
       </div>
 
-      {/* MODAL (Identique mais utilise selectedImage.id pour le PUT) */}
       {showModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-slate-800 border border-cyan-500/30 p-6 rounded-2xl w-full max-w-md shadow-2xl">
@@ -192,7 +244,7 @@ const MesImages = () => {
                     value={newDiseaseName}
                     onChange={(e) => {
                       setNewDiseaseName(e.target.value);
-                      setNewDiseaseType(''); 
+                      setNewDiseaseType('');
                     }}
                   >
                     {categoryOptions.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
@@ -257,6 +309,42 @@ const MesImages = () => {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-slate-800 border border-red-500/30 p-6 rounded-2xl w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <AlertCircle className="text-red-400" size={18} />
+                Supprimer cet avis
+              </h3>
+              <button onClick={() => setShowDeleteModal(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
+            </div>
+
+            <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-xl text-[11px] text-red-200 mb-4">
+              Êtes-vous sûr de supprimer cet avis ? Si vous continuez, il sera définitivement supprimé de la base de données.
+            </div>
+
+            <div>
+              <label className="text-xs text-orange-400 font-bold uppercase">Mot de passe</label>
+              <input
+                type="password"
+                className="w-full bg-slate-900 border border-orange-500/50 p-3 rounded-xl text-white mt-1 outline-none focus:border-orange-400"
+                value={deletePassword}
+                onChange={e => setDeletePassword(e.target.value)}
+                placeholder="Confirmer"
+              />
+            </div>
+
+            {deleteError && <div className="text-red-400 text-xs bg-red-400/10 p-3 rounded-lg border border-red-400/20 mt-3">{deleteError}</div>}
+
+            <div className="flex gap-3 mt-4">
+              <button className="flex-1 py-3 bg-slate-700 rounded-xl font-bold text-sm" onClick={() => setShowDeleteModal(false)}>Annuler</button>
+              <button className="flex-1 py-3 bg-red-600 rounded-xl font-bold text-sm shadow-lg" onClick={handleDeleteConfirm}>Supprimer</button>
+            </div>
           </div>
         </div>
       )}
