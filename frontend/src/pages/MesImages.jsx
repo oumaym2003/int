@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Edit, Image as ImageIcon, Lock, X, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Edit, Image as ImageIcon, Lock, X, AlertCircle, CheckCircle2, UserCircle } from 'lucide-react';
 
-// Structure des maladies identique à l'accueil pour la cohérence
 const categoryOptions = [
   { name: 'OMA', fullName: 'Otite Moyenne Aiguë', options: ['cong', 'sup', 'perf'] },
   { name: 'OSM', fullName: 'Otite Séromuqueuse', options: [] },
@@ -14,34 +13,54 @@ const categoryOptions = [
 ];
 
 const MesImages = () => {
-  const [images, setImages] = useState([]);
+  const [groupedImages, setGroupedImages] = useState([]); // Contiendra les images groupées
   const [selectedImage, setSelectedImage] = useState(null);
   const [showModal, setShowModal] = useState(false);
   
-  // États pour la nouvelle sélection
   const [newDiseaseName, setNewDiseaseName] = useState('');
   const [newDiseaseType, setNewDiseaseType] = useState('');
   const [customDiseaseName, setCustomDiseaseName] = useState('');
   
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [step, setStep] = useState(1); // 1: Sélection, 2: Récapitulatif/MDP
+  const [step, setStep] = useState(1);
 
   const API_BASE_URL = "http://127.0.0.1:8000";
 
+  // --- LOGIQUE DE REGROUPEMENT ---
   const fetchImages = () => {
     axios.get(`${API_BASE_URL}/api/diagnostics`)
-      .then(res => setImages(res.data))
-      .catch(err => console.error(err));
+      .then(res => {
+        const rawData = res.data;
+        
+        // On utilise un objet pour grouper par image_hash
+        const groups = rawData.reduce((acc, current) => {
+          const hash = current.image_hash;
+          if (!acc[hash]) {
+            acc[hash] = {
+              image_url: current.image_url,
+              image_hash: hash,
+              avis: [] // Liste de tous les diagnostics pour cette image
+            };
+          }
+          acc[hash].avis.push(current);
+          return acc;
+        }, {});
+
+        // On transforme l'objet en tableau pour le map
+        setGroupedImages(Object.values(groups));
+      })
+      .catch(err => console.error("Erreur de chargement:", err));
   };
 
   useEffect(() => { fetchImages(); }, []);
 
-  const handleEditClick = (image) => {
-    setSelectedImage(image);
-    setNewDiseaseName(image.nom_maladie);
-    setNewDiseaseType(image.type_maladie);
-    setCustomDiseaseName(categoryOptions.some(c => c.name === image.nom_maladie) ? '' : image.nom_maladie);
+  const handleEditClick = (diagnostic) => {
+    setSelectedImage(diagnostic);
+    const isStandard = categoryOptions.some(c => c.name === diagnostic.nom_maladie);
+    setNewDiseaseName(isStandard ? diagnostic.nom_maladie : 'Autre');
+    setCustomDiseaseName(isStandard ? '' : diagnostic.nom_maladie);
+    setNewDiseaseType(diagnostic.type_maladie);
     setPassword('');
     setError('');
     setStep(1);
@@ -49,7 +68,7 @@ const MesImages = () => {
   };
 
   const goToConfirmation = () => {
-    if (newDiseaseName === 'Autre' && !customDiseaseName) {
+    if (newDiseaseName === 'Autre' && !customDiseaseName.trim()) {
       setError("Veuillez saisir le nom de la maladie.");
       return;
     }
@@ -58,67 +77,42 @@ const MesImages = () => {
   };
 
   const handleConfirm = async () => {
-    setError(''); // Réinitialiser l'erreur au début
-    
+    setError(''); 
     if (!password) {
-      setError("Le mot de passe est obligatoire pour signer la modification.");
+      setError("Le mot de passe est obligatoire.");
       return;
     }
 
     try {
       const user = JSON.parse(localStorage.getItem("user"));
-      
-      // Sécurité : Vérifier si l'utilisateur et l'ID existent
       if (!user || !user.id) {
-        setError("Session expirée. Veuillez vous reconnecter.");
+        setError("Session expirée. Reconnectez-vous.");
         return;
       }
 
-      // 1. Vérification du mot de passe
-      // On s'assure que utilisateur_id est bien un nombre si ton backend l'attend ainsi
       const verifData = {
         utilisateur_id: parseInt(user.id), 
-        mot_de_passe: password
+        mot_de_passe: password.trim()
       };
-
-      console.log("Tentative de vérification :", verifData);
 
       await axios.post(`${API_BASE_URL}/api/verifier-mdp`, verifData);
 
-      // 2. Si la vérification passe, on prépare le nom final
-      const finalName = newDiseaseName === 'Autre' ? customDiseaseName : newDiseaseName;
-
-      // 3. Mise à jour réelle
+      const finalName = newDiseaseName === 'Autre' ? customDiseaseName.trim() : newDiseaseName;
       const updateData = {
         nom_maladie: finalName,
         type_maladie: newDiseaseType || 'Standard'
       };
 
-      console.log("Envoi de la mise à jour :", updateData);
-
+      // Utilisation de l'ID du diagnostic sélectionné
       await axios.put(`${API_BASE_URL}/api/diagnostic/${selectedImage.id}`, updateData);
 
-      // Succès
       fetchImages();
       setShowModal(false);
-      setPassword(''); // Nettoyer le mdp
     } catch (e) {
-      console.error("Erreur complète :", e);
-      
-      // Gestion fine du message d'erreur
-      if (e.response) {
-        // Le serveur a répondu avec une erreur (ex: 401 ou 400)
-        setError(e.response.data.detail || "Mot de passe incorrect ou erreur de validation.");
-      } else if (e.request) {
-        // Pas de réponse du serveur
-        setError("Le serveur ne répond pas. Vérifiez votre connexion.");
-      } else {
-        setError("Une erreur est survenue lors de l'envoi.");
-      }
+      setError(e.response?.data?.detail || "Mot de passe incorrect ou erreur serveur.");
     }
   };
- 
-  // Trouver les options de type pour la maladie sélectionnée
+
   const currentOptions = categoryOptions.find(c => c.name === newDiseaseName)?.options || [];
 
   return (
@@ -126,68 +120,98 @@ const MesImages = () => {
       <div className="max-w-6xl mx-auto bg-white/5 backdrop-blur-md rounded-3xl p-8 border border-white/10">
         <div className="flex items-center gap-3 mb-10">
           <ImageIcon className="w-8 h-8 text-cyan-400" />
-          <h2 className="text-3xl font-bold">Images diagnostiquées</h2>
+          <h2 className="text-3xl font-bold">Galerie Collaborative</h2>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {images.map(img => (
-            <div key={img.id} className="bg-white/10 rounded-2xl overflow-hidden border border-white/10 hover:border-cyan-400/50 transition-all">
-              <img src={encodeURI(`${API_BASE_URL}/${img.image_url}`)} className="w-full h-48 object-cover" alt="" />
-              <div className="p-4">
-                <h3 className="text-cyan-400 font-bold">{img.nom_maladie}</h3>
-                <p className="text-slate-400 text-xs">Type: {img.type_maladie}</p>
-                <button onClick={() => handleEditClick(img)} className="w-full mt-4 flex items-center justify-center gap-2 bg-cyan-600 py-2 rounded-lg text-sm font-bold">
-                  <Edit size={14} /> Modifier
-                </button>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {groupedImages.map((group, idx) => (
+            <div key={idx} className="bg-white/10 rounded-3xl overflow-hidden border border-white/10 flex flex-col shadow-2xl">
+              {/* IMAGE UNIQUE */}
+              <div className="h-56 bg-black relative">
+                <img 
+                  src={encodeURI(`${API_BASE_URL}/${group.image_url}`)} 
+                  className="w-full h-full object-cover" 
+                  alt="Otoscopie" 
+                />
+                <div className="absolute top-3 left-3 bg-cyan-500 text-white text-[10px] px-2 py-1 rounded-full font-bold uppercase">
+                  {group.avis.length} {group.avis.length > 1 ? 'Avis' : 'Avis'}
+                </div>
+              </div>
+
+              {/* LISTE DES AVIS (MEDECINS) */}
+              <div className="p-5 flex-1 flex flex-col space-y-4">
+                <div className="space-y-3">
+                  {group.avis.map(avi => (
+                    <div key={avi.id} className="bg-white/5 rounded-2xl p-3 border border-white/5 relative group/item">
+                      <div className="flex items-center gap-2 mb-1">
+                        <UserCircle size={14} className="text-slate-400" />
+                        <span className="text-[10px] font-bold text-slate-300">Dr. {avi.medecin}</span>
+                        <span className="text-[9px] text-slate-500 ml-auto">{avi.date}</span>
+                      </div>
+                      <div className="flex justify-between items-end">
+                        <div>
+                          <p className="text-sm font-bold text-cyan-400">{avi.nom_maladie}</p>
+                          <p className="text-[10px] text-slate-400 italic">{avi.type_maladie}</p>
+                        </div>
+                        
+                        {/* Bouton modifier pour chaque avis spécifique */}
+                        <button 
+                          onClick={() => handleEditClick(avi)}
+                          className="p-2 bg-white/10 rounded-lg hover:bg-cyan-500/20 hover:text-cyan-400 transition-all"
+                        >
+                          <Edit size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           ))}
         </div>
       </div>
 
+      {/* MODAL (Identique mais utilise selectedImage.id pour le PUT) */}
       {showModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-slate-800 border border-cyan-500/30 p-6 rounded-2xl w-full max-w-md shadow-2xl">
-            
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                {step === 1 ? "Nouveau Diagnostic" : "Signature Médicale"}
+                <Lock className="text-cyan-400" size={18} />
+                {step === 1 ? "Modifier mon avis" : "Signature Médicale"}
               </h3>
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
             </div>
 
             {step === 1 ? (
               <div className="space-y-4">
-                {/* Menu déroulant Maladie */}
                 <div>
                   <label className="text-xs text-slate-400 font-bold uppercase">Maladie</label>
                   <select 
                     className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-white mt-1 outline-none focus:border-cyan-400"
-                    value={categoryOptions.some(c => c.name === newDiseaseName) ? newDiseaseName : 'Autre'}
+                    value={newDiseaseName}
                     onChange={(e) => {
                       setNewDiseaseName(e.target.value);
-                      setNewDiseaseType(''); // Reset du type si on change de maladie
+                      setNewDiseaseType(''); 
                     }}
                   >
                     {categoryOptions.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                   </select>
                 </div>
 
-                {/* Champ si "Autre" est sélectionné */}
                 {newDiseaseName === 'Autre' && (
                   <div>
-                    <label className="text-xs text-orange-400 font-bold uppercase">Nom personnalisé</label>
+                    <label className="text-xs text-orange-400 font-bold uppercase">Nom de la maladie</label>
                     <input 
                       type="text"
                       className="w-full bg-slate-900 border border-orange-500/30 p-3 rounded-xl text-white mt-1 outline-none focus:border-orange-400"
                       value={customDiseaseName}
                       onChange={(e) => setCustomDiseaseName(e.target.value)}
-                      placeholder="Saisir la pathologie..."
+                      placeholder="Saisir..."
                     />
                   </div>
                 )}
 
-                {/* Menu déroulant Type (si options disponibles) */}
                 {currentOptions.length > 0 && (
                   <div>
                     <label className="text-xs text-slate-400 font-bold uppercase">Type / Stade</label>
@@ -196,46 +220,40 @@ const MesImages = () => {
                       value={newDiseaseType}
                       onChange={(e) => setNewDiseaseType(e.target.value)}
                     >
-                      <option value="">Sélectionner un type...</option>
+                      <option value="">Sélectionner...</option>
                       {currentOptions.map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
                   </div>
                 )}
 
-                <button className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl font-bold mt-4 transition-all" onClick={goToConfirmation}>
-                  Vérifier la modification
+                <button className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl font-bold mt-4 transition-all shadow-lg" onClick={goToConfirmation}>
+                  Vérifier
                 </button>
               </div>
             ) : (
               <div className="space-y-5">
-                <div className="bg-blue-500/10 border border-blue-500/30 p-4 rounded-xl flex items-start gap-3">
-                  <AlertCircle className="text-blue-400 shrink-0" size={20} />
-                  <p className="text-[11px] text-blue-100 italic">
-                    Note : L'image source originale est conservée. Le diagnostic sera modifié par le nouveau ci-dessous.
-                  </p>
-                </div>
-
-                <div className="p-4 bg-slate-900 rounded-xl border border-slate-700 space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase">Nouveau Diagnostic</span>
-                    <CheckCircle2 size={14} className="text-green-400" />
-                  </div>
-                  <p className="text-lg font-bold text-white">
-                    {newDiseaseName === 'Autre' ? customDiseaseName : newDiseaseName}
-                  </p>
+                <div className="p-4 bg-slate-900 rounded-xl border border-slate-700">
+                  <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">Nouvel avis pour Dr. {selectedImage.medecin}</p>
+                  <p className="text-lg font-bold text-white">{newDiseaseName === 'Autre' ? customDiseaseName : newDiseaseName}</p>
                   <p className="text-sm text-cyan-400">{newDiseaseType || 'Standard'}</p>
                 </div>
 
                 <div>
-                  <label className="text-xs text-orange-400 font-bold uppercase">Mot de passe pour confirmer</label>
-                  <input type="password" className="w-full bg-slate-900 border border-orange-500/50 p-3 rounded-xl text-white mt-1 outline-none" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
+                  <label className="text-xs text-orange-400 font-bold uppercase">Mot de passe</label>
+                  <input 
+                    type="password" 
+                    className="w-full bg-slate-900 border border-orange-500/50 p-3 rounded-xl text-white mt-1 outline-none focus:border-orange-400" 
+                    value={password} 
+                    onChange={e => setPassword(e.target.value)} 
+                    placeholder="Confirmer" 
+                  />
                 </div>
 
                 {error && <div className="text-red-400 text-xs bg-red-400/10 p-3 rounded-lg border border-red-400/20">{error}</div>}
 
-                <div className="flex gap-3 pt-2">
+                <div className="flex gap-3">
                   <button className="flex-1 py-3 bg-slate-700 rounded-xl font-bold text-sm" onClick={() => setStep(1)}>Retour</button>
-                  <button className="flex-1 py-3 bg-gradient-to-r from-green-600 to-cyan-600 rounded-xl font-bold text-sm" onClick={handleConfirm}>Confirmer</button>
+                  <button className="flex-1 py-3 bg-cyan-600 rounded-xl font-bold text-sm shadow-lg" onClick={handleConfirm}>Enregistrer</button>
                 </div>
               </div>
             )}
