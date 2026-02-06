@@ -327,13 +327,26 @@ const MesImages = () => {
 
   const avisKey = (avis) => `${normalizeAvisValue(avis.nom_maladie)}::${normalizeAvisValue(avis.type_maladie)}`;
 
+  // Fonction pour déterminer le statut d'une image selon le nombre et la concordance des avis
+  const getAvisStatus = (group) => {
+    if (group.avis.length === 1) return 'single'; // 1 avis → affichage vert
+    if (group.avis.length >= 2) {
+      const keys = new Set(group.avis.map(avisKey));
+      if (keys.size === 1) return 'validated'; // 2+ avis concordants → violet validé
+      return 'divergent'; // 2+ avis différents → affichage normal
+    }
+    return 'normal';
+  };
+
   const canAddAvis = (group) => {
     if (!currentUserId) {
       return false;
     }
     
-    // Si l'avis est déjà validé (2+ avis concordants), on ne peut plus ajouter
-    if (isValidated(group)) {
+    const status = getAvisStatus(group);
+    
+    // Si déjà validé (2+ avis concordants), on ne peut plus ajouter
+    if (status === 'validated') {
       return false;
     }
     
@@ -347,21 +360,18 @@ const MesImages = () => {
       return false;
     }
     
-    if (avisCount >= 3) {
-      return false;
-    }
-    
-    if (avisCount < 2) {
-      console.log(`Image ${group.image_hash}: disponible pour ${currentUserId} (${avisCount} avis)`);
+    // Limites : 2 avis maximum SI concordants, 3 avis si divergents
+    if (status === 'single') {
+      // 1 avis → permettre 2ème avis
+      console.log(`Image ${group.image_hash}: disponible pour ${currentUserId} (1 avis)`);
+      return true;
+    } else if (status === 'divergent' && avisCount < 3) {
+      // 2 avis différents → permettre 3ème avis pour validation finale
+      console.log(`Image ${group.image_hash}: disponible pour ${currentUserId} (2 avis divergents, 3ème avis autorisé)`);
       return true;
     }
     
-    const keys = new Set(group.avis.map(avisKey));
-    const eligible = keys.size > 1;
-    if (eligible) {
-      console.log(`Image ${group.image_hash}: disponible pour ${currentUserId} (avis divergents)`);
-    }
-    return eligible;
+    return false;
   };
 
   const isConcordant = (group) => {
@@ -394,11 +404,21 @@ const MesImages = () => {
 
   // Fonction pour afficher une carte d'image
   const renderImageCard = (group, keyValue, showActions = true) => {
-    const validated = isValidated(group);
+    const status = getAvisStatus(group);
+    const validated = status === 'validated';
+    const isSingle = status === 'single';
     const medecinsList = group.avis.map(a => `Dr. ${a.medecin}`).join(' & ');
     
+    // Déterminer les classes CSS selon le statut
+    let cardClass = 'bg-white/10 border-white/10';
+    if (validated) {
+      cardClass = 'bg-purple-900/20 border-purple-500/30';
+    } else if (isSingle) {
+      cardClass = 'bg-green-900/20 border-green-500/30';
+    }
+    
     return (
-      <div key={keyValue} className={`rounded-3xl overflow-hidden border flex flex-col shadow-2xl ${validated ? 'bg-purple-900/20 border-purple-500/30' : 'bg-white/10 border-white/10'}`}>
+      <div key={keyValue} className={`rounded-3xl overflow-hidden border flex flex-col shadow-2xl ${cardClass}`}>
         <div className="h-56 bg-black relative">
           <img 
             src={`${API_BASE_URL}/${group.image_url}`} 
@@ -409,17 +429,22 @@ const MesImages = () => {
               e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect fill='%23333' width='100' height='100'/%3E%3Ctext fill='%23fff' x='50%25' y='50%25' text-anchor='middle' dy='.3em'%3EImage%3C/text%3E%3C/svg%3E";
             }}
           />
-          <div className={`absolute top-3 left-3 text-white text-[10px] px-2 py-1 rounded-full font-bold uppercase ${validated ? 'bg-purple-600' : 'bg-cyan-500'}`}>
+          <div className={`absolute top-3 left-3 text-white text-[10px] px-2 py-1 rounded-full font-bold uppercase ${validated ? 'bg-purple-600' : (isSingle ? 'bg-green-600' : 'bg-cyan-500')}`}>
             {group.avis.length} {group.avis.length > 1 ? 'Avis' : 'Avis'}
           </div>
           {activeTab === 'disponibles' && (
-            <div className={`absolute top-3 right-3 text-[10px] px-2 py-1 rounded-full font-bold uppercase ${validated ? 'bg-purple-600 text-white' : (isConcordant(group) ? 'bg-slate-700 text-slate-300' : 'bg-green-500 text-white')}`}>
-              {validated ? '✓ Validé' : (isConcordant(group) ? 'Bloque' : 'Disponible')}
+            <div className={`absolute top-3 right-3 text-[10px] px-2 py-1 rounded-full font-bold uppercase ${validated ? 'bg-purple-600 text-white' : (isSingle ? 'bg-green-600 text-white' : 'bg-amber-500 text-white')}`}>
+              {validated ? '✓ Validé' : (isSingle ? 'En attente' : 'Divergent')}
             </div>
           )}
           {validated && activeTab === 'mes-diagnostics' && (
             <div className="absolute top-3 right-3 bg-purple-600 text-white text-[10px] px-2 py-1 rounded-full font-bold uppercase">
               ✓ Validé
+            </div>
+          )}
+          {isSingle && activeTab === 'mes-diagnostics' && (
+            <div className="absolute top-3 right-3 bg-green-600 text-white text-[10px] px-2 py-1 rounded-full font-bold uppercase">
+              En attente
             </div>
           )}
         </div>
@@ -452,10 +477,10 @@ const MesImages = () => {
               </div>
             </div>
           ) : (
-            // Affichage normal pour avis non validés
+            // Affichage pour avis non validés (1 avis en vert, 2+ divergents en normal)
             <div className="space-y-3">
               {group.avis.map(avi => (
-                <div key={avi.id} className="bg-white/5 rounded-2xl p-3 border border-white/5 relative group/item">
+                <div key={avi.id} className={`rounded-2xl p-3 border relative group/item ${isSingle ? 'bg-green-500/10 border-green-500/30' : 'bg-white/5 border-white/5'}`}>
                   <div className="flex items-center gap-2 mb-1">
                     <UserCircle size={14} className="text-slate-400" />
                     <span className="text-[10px] font-bold text-slate-300">Dr. {avi.medecin}</span>
@@ -463,8 +488,8 @@ const MesImages = () => {
                   </div>
                   <div className="flex justify-between items-end">
                     <div>
-                      <p className="text-sm font-bold text-cyan-400">{avi.nom_maladie}</p>
-                      <p className="text-[10px] text-slate-400 italic">{avi.type_maladie}</p>
+                      <p className={`text-sm font-bold ${isSingle ? 'text-green-400' : 'text-cyan-400'}`}>{avi.nom_maladie}</p>
+                      <p className={`text-[10px] italic ${isSingle ? 'text-green-300' : 'text-slate-400'}`}>{avi.type_maladie}</p>
                     </div>
 
                     {showActions && currentUserId === parseInt(avi.utilisateur_id) && (
