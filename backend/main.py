@@ -52,6 +52,18 @@ def sanitize_part(value: str, fallback: str) -> str:
     return cleaned or fallback
 
 
+def normalize_avis_value(value: str) -> str:
+    if not value:
+        return ""
+    return " ".join(value.strip().lower().split())
+
+
+def avis_key(avis: models.Diagnostic) -> str:
+    nom = normalize_avis_value(avis.nom_maladie)
+    type_maladie = normalize_avis_value(avis.type_maladie)
+    return f"{nom}::{type_maladie}"
+
+
 def get_db():
     db = database.SessionLocal()
     try:
@@ -79,6 +91,31 @@ def get_all_diagnostics(db: Session = Depends(get_db)):
     return resultat
 
 
+@app.get("/api/diagnostics/user/{user_id}")
+def get_user_diagnostics(user_id: int, db: Session = Depends(get_db)):
+    """Récupère tous les diagnostics d'un utilisateur spécifique"""
+    diagnostics = db.query(models.Diagnostic).filter(
+        models.Diagnostic.utilisateur_id == user_id
+    ).order_by(models.Diagnostic.id.desc()).all()
+    
+    resultat = []
+    for d in diagnostics:
+        clean_url = d.path_image_final.replace("\\", "/") if d.path_image_final else ""
+        resultat.append({
+            "id": d.id,
+            "nom_maladie": d.nom_maladie,
+            "type_maladie": d.type_maladie,
+            "medecin": d.nom_medecin_diagnostiqueur,
+            "date": d.date_diagnostique,
+            "image_url": clean_url,
+            "image_hash": d.image_hash,
+            "utilisateur_id": d.utilisateur_id,
+            "nom_image_originale": d.nom_image_originale,
+            "nom_image_renommee": d.nom_image_renommee
+        })
+    return resultat
+
+
 @app.post("/api/diagnostic/")
 async def create_diagnostic(
     file: UploadFile = File(...),
@@ -92,15 +129,28 @@ async def create_diagnostic(
         image_bytes = await file.read()
         sha256_hash = hashlib.sha256(image_bytes).hexdigest()
 
-        image_existante = db.query(models.Diagnostic).filter(
+        avis_existants = db.query(models.Diagnostic).filter(
             models.Diagnostic.image_hash == sha256_hash
-        ).first()
+        ).all()
+
+        if avis_existants:
+            if any(avis.utilisateur_id == utilisateur_id for avis in avis_existants):
+                raise HTTPException(status_code=400, detail="Vous avez deja donne un avis pour cette image")
+
+            avis_count = len(avis_existants)
+            if avis_count >= 3:
+                raise HTTPException(status_code=400, detail="Cette image a deja 3 avis")
+
+            if avis_count == 2:
+                keys = {avis_key(avis) for avis in avis_existants}
+                if len(keys) == 1:
+                    raise HTTPException(status_code=400, detail="Cette image a deja 2 avis identiques")
 
         original_filename = file.filename or "uploaded_file"
 
-        if image_existante:
-            nom_renomme_final = image_existante.nom_image_renommee
-            path_final_bdd = image_existante.path_image_final
+        if avis_existants:
+            nom_renomme_final = avis_existants[0].nom_image_renommee
+            path_final_bdd = avis_existants[0].path_image_final
             message_retour = "Avis ajouté à l'image existante"
         else:
             maladie_part = sanitize_part(nom_maladie, "inconnue")
@@ -215,13 +265,26 @@ def login(data: dict, db: Session = Depends(get_db)):
 
 @app.post("/api/verifier-mdp")
 def verifier_mot_de_passe(data: dict, db: Session = Depends(get_db)):
+    utilisateur_id = data.get("utilisateur_id")
+    mot_de_passe = data.get("mot_de_passe")
+    
+    logger.info(f"Vérification mot de passe pour utilisateur_id: {utilisateur_id}")
+    
     user = db.query(models.Utilisateur).filter(
-        models.Utilisateur.id == data.get("utilisateur_id")
+        models.Utilisateur.id == utilisateur_id
     ).first()
 
-    if not user or user.mot_de_passe != data.get("mot_de_passe"):
+    if not user:
+        logger.error(f"Utilisateur {utilisateur_id} introuvable")
+        raise HTTPException(status_code=401, detail="Utilisateur introuvable")
+    
+    # Comparaison simple des mots de passe
+    if user.mot_de_passe != mot_de_passe:
+        logger.error(f"Mot de passe incorrect pour utilisateur {utilisateur_id}")
+        logger.debug(f"Attendu: '{user.mot_de_passe}' / Reçu: '{mot_de_passe}'")
         raise HTTPException(status_code=401, detail="Mot de passe incorrect")
 
+    logger.info(f"Mot de passe vérifié avec succès pour utilisateur {utilisateur_id}")
     return {"status": "success"}
 
 
