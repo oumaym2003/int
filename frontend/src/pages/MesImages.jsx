@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import axios from 'axios';
-import { Edit, Image as ImageIcon, Lock, X, AlertCircle, UserCircle, Trash2 } from 'lucide-react';
+import { Edit, Image as ImageIcon, X, Trash2 } from 'lucide-react';
 
 const categoryOptions = [
   { name: 'OMA', fullName: 'Otite Moyenne Aiguë', options: ['cong', 'sup', 'perf'] },
@@ -13,34 +13,20 @@ const categoryOptions = [
 ];
 
 const MesImages = () => {
-<<<<<<< Updated upstream
-  const [activeTab, setActiveTab] = useState('mes-diagnostics'); // 'mes-diagnostics' ou 'disponibles'
-=======
   const [activeTab, setActiveTab] = useState('mes-diagnostics');
->>>>>>> Stashed changes
-  const [myDiagnostics, setMyDiagnostics] = useState([]);
-  const [groupedImages, setGroupedImages] = useState([]);
+  const [allDataGrouped, setAllDataGrouped] = useState([]); // Une seule source de vérité
   const [selectedImage, setSelectedImage] = useState(null);
-  const [selectedGroup, setSelectedGroup] = useState(null); // Pour l'ajout d'un nouveau diagnostic
-  const [modalMode, setModalMode] = useState('edit'); // 'edit' ou 'add'
+  const [selectedGroup, setSelectedGroup] = useState(null); 
+  const [modalMode, setModalMode] = useState('edit'); 
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
-<<<<<<< Updated upstream
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [newDiseaseName, setNewDiseaseName] = useState('');
   const [newDiseaseType, setNewDiseaseType] = useState('');
   const [customDiseaseName, setCustomDiseaseName] = useState('');
 
-=======
-  const [selectedGroup, setSelectedGroup] = useState(null);
-  const [modalMode, setModalMode] = useState('edit');
-  const [newDiseaseName, setNewDiseaseName] = useState('');
-  const [newDiseaseType, setNewDiseaseType] = useState('');
-  const [customDiseaseName, setCustomDiseaseName] = useState('');
-  const [isRefreshing, setIsRefreshing] = useState(false);
->>>>>>> Stashed changes
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [step, setStep] = useState(1);
@@ -49,935 +35,259 @@ const MesImages = () => {
 
   const API_BASE_URL = "http://127.0.0.1:8000";
   const currentUser = JSON.parse(localStorage.getItem("user") || "null");
-  const currentUserId = currentUser?.id ? parseInt(currentUser.id) : null;
+  const currentUserId = currentUser?.id ? Number(currentUser.id) : null;
 
-<<<<<<< Updated upstream
-  const currentUser = JSON.parse(localStorage.getItem("user") || "null");
-  const currentUserId = currentUser?.id ? parseInt(currentUser.id) : null;
-
-  // Récupérer MES diagnostics
-  const fetchMyDiagnostics = useCallback(async () => {
-    if (!currentUserId) return Promise.resolve();
-    
-    try {
-      console.log(`🔄 Chargement des diagnostics pour user ${currentUserId}...`);
-      const res = await axios.get(`${API_BASE_URL}/api/diagnostics/user/${currentUserId}?_t=${Date.now()}`);
-      const rawData = res.data;
-      console.log('📦 Mes diagnostics reçus:', rawData.length, 'diagnostics');
-      
-      // Grouper par image_hash
-      const groups = rawData.reduce((acc, current) => {
-        const hash = current.image_hash;
-        if (!acc[hash]) {
-          acc[hash] = {
-            image_url: current.image_url,
-            image_hash: hash,
-            avis: []
-          };
-        }
-        acc[hash].avis.push(current);
-        return acc;
-      }, {});
-      
-      const groupsArray = Object.values(groups);
-      setMyDiagnostics(groupsArray);
-      console.log(`🔄 Mes diagnostics rechargés: ${groupsArray.length} images`);
-    } catch (err) {
-      console.error("❌ Erreur de chargement mes diagnostics:", err);
-    }
-  }, [currentUserId]);
-
-  // Récupérer toutes les images pour les images disponibles
-  const fetchImages = useCallback(async () => {
-    try {
-      console.log('🔄 Chargement de toutes les images...');
-      const res = await axios.get(`${API_BASE_URL}/api/diagnostics?_t=${Date.now()}`);
-      const rawData = res.data;
-      console.log('📦 Données brutes reçues:', rawData.length, 'diagnostics');
-      
-      const groups = rawData.reduce((acc, current) => {
-        const hash = current.image_hash;
-        if (!acc[hash]) {
-          acc[hash] = {
-            image_url: current.image_url,
-            image_hash: hash,
-            avis: []
-          };
-        }
-        acc[hash].avis.push(current);
-        return acc;
-      }, {});
-
-      const groupsArray = Object.values(groups);
-      setGroupedImages(groupsArray);
-      console.log(`🔄 Images disponibles rechargées: ${groupsArray.length} images`);
-      
-      // Afficher les détails de chaque groupe
-      groupsArray.forEach(g => {
-        console.log(`  📷 ${g.image_hash}: ${g.avis.length} avis - ${g.avis.map(a => a.medecin).join(', ')}`);
-      });
-      
-    } catch (err) {
-      console.error("❌ Erreur de chargement:", err);
-    }
-  }, []);
-
-  useEffect(() => { 
-    let mounted = true;
-    
-    const loadData = async () => {
-      if (currentUserId && mounted) {
-        await fetchMyDiagnostics();
-        await fetchImages(); 
-      }
-    };
-    
-    loadData();
-    
-    return () => {
-      mounted = false;
-    };
-  }, [currentUserId, fetchMyDiagnostics, fetchImages]);
-=======
-  // --- LOGIQUE DE REGROUPEMENT ---
-  const groupData = (data) => {
+  // --- LOGIQUE DE REGROUPEMENT UNIQUE ---
+  const groupData = useCallback((data) => {
+    if (!Array.isArray(data)) return [];
     const groups = data.reduce((acc, current) => {
       const hash = current.image_hash;
       if (!acc[hash]) {
         acc[hash] = {
-          image_url: current.image_url,
+          image_url: current.path_image_final || current.image_url,
           image_hash: hash,
           avis: []
         };
       }
-      acc[hash].avis.push(current);
+      if (!acc[hash].avis.find(a => a.id === current.id)) {
+        acc[hash].avis.push(current);
+      }
       return acc;
     }, {});
     return Object.values(groups);
-  };
-
-  const fetchMyDiagnostics = useCallback(async () => {
-    if (!currentUserId) return;
-    try {
-      const res = await axios.get(`${API_BASE_URL}/api/diagnostics/user/${currentUserId}?_t=${Date.now()}`);
-      setMyDiagnostics(groupData(res.data));
-    } catch (err) {
-      console.error("Erreur chargement mes diagnostics:", err);
-    }
-  }, [currentUserId]);
->>>>>>> Stashed changes
-
-  const fetchImages = useCallback(async () => {
-    try {
-      const res = await axios.get(`${API_BASE_URL}/api/diagnostics?_t=${Date.now()}`);
-      setGroupedImages(groupData(res.data));
-    } catch (err) {
-      console.error("Erreur chargement images:", err);
-    }
   }, []);
 
-  useEffect(() => {
-    if (currentUserId) {
-      fetchMyDiagnostics();
-      fetchImages();
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/diagnostics?_t=${Date.now()}`);
+      setAllDataGrouped(groupData(res.data));
+    } catch (err) {
+      console.error("Erreur chargement:", err);
     }
-  }, [currentUserId, fetchMyDiagnostics, fetchImages]);
+  }, [groupData]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // --- FILTRES INTELLIGENTS ---
+  const avisKey = (avis) => `${avis.nom_maladie?.toLowerCase()}::${avis.type_maladie?.toLowerCase()}`;
+
+  const getAvisStatus = (group) => {
+    if (group.avis.length === 1) return 'single';
+    const keys = new Set(group.avis.map(avisKey));
+    return keys.size === 1 ? 'validated' : 'divergent';
+  };
+
+  // 1. Filtrer pour "Mes Diagnostics" : Images où l'utilisateur actuel a au moins un avis
+  const myDiagnosticsGroups = useMemo(() => {
+    return allDataGrouped.filter(group => 
+      group.avis.some(avi => Number(avi.utilisateur_id) === currentUserId)
+    );
+  }, [allDataGrouped, currentUserId]);
+
+  // 2. Filtrer pour "Contribuer" : Images où l'utilisateur n'a PAS encore donné d'avis ET pas encore validées
+  const availableGroups = useMemo(() => {
+    return allDataGrouped.filter(group => {
+      const status = getAvisStatus(group);
+      const userAlreadyVoted = group.avis.some(avi => Number(avi.utilisateur_id) === currentUserId);
+      return !userAlreadyVoted && status !== 'validated';
+    });
+  }, [allDataGrouped, currentUserId]);
+
 
   // --- HANDLERS ---
   const handleEditClick = (diagnostic) => {
     setModalMode('edit');
     setSelectedImage(diagnostic);
-    setSelectedGroup(null);
     const isStandard = categoryOptions.some(c => c.name === diagnostic.nom_maladie);
     setNewDiseaseName(isStandard ? diagnostic.nom_maladie : 'Autre');
     setCustomDiseaseName(isStandard ? '' : diagnostic.nom_maladie);
-    setNewDiseaseType(diagnostic.type_maladie);
-    setPassword('');
-    setError('');
-    setStep(1);
-    setShowModal(true);
+    setNewDiseaseType(diagnostic.type_maladie || '');
+    setPassword(''); setError(''); setStep(1); setShowModal(true);
   };
 
   const handleAddClick = (group) => {
     setModalMode('add');
-    setSelectedImage(null);
     setSelectedGroup(group);
-    setNewDiseaseName('OMA');
-    setCustomDiseaseName('');
-    setNewDiseaseType('');
-    setPassword('');
-<<<<<<< Updated upstream
-    setError('');
-    setStep(1);
-    setShowModal(true);
-  };
-
-  const handleDeleteClick = (diagnostic) => {
-    setDeleteTarget(diagnostic);
-    setDeletePassword('');
-    setDeleteError('');
-    setShowDeleteModal(true);
-  };
-
-  const goToConfirmation = () => {
-    if (newDiseaseName === 'Autre' && !customDiseaseName.trim()) {
-      setError("Veuillez saisir le nom de la maladie.");
-      return;
-    }
-=======
->>>>>>> Stashed changes
-    setError('');
-    setStep(1);
-    setShowModal(true);
-  };
-
-  const handleDeleteClick = (diagnostic) => {
-    setDeleteTarget(diagnostic);
-    setDeletePassword('');
-    setDeleteError('');
-    setShowDeleteModal(true);
+    setNewDiseaseName('OMA'); setCustomDiseaseName(''); setNewDiseaseType('');
+    setPassword(''); setError(''); setStep(1); setShowModal(true);
   };
 
   const handleConfirm = async () => {
-<<<<<<< Updated upstream
     setError('');
-    if (!password) {
-      setError("Le mot de passe est obligatoire.");
-      return;
-    }
-
     try {
-      const user = JSON.parse(localStorage.getItem("user"));
-      if (!user || !user.id) {
-        setError("Session expirée. Reconnectez-vous.");
-        return;
-      }
-
-      console.log('Vérification mot de passe pour utilisateur:', user.id);
-      console.log('Mot de passe saisi:', password.trim());
-
-      const verifData = {
-        utilisateur_id: parseInt(user.id),
+      await axios.post(`${API_BASE_URL}/api/verifier-mdp`, {
+        utilisateur_id: Number(currentUserId),
         mot_de_passe: password.trim()
-      };
-
-=======
-    if (!password) { setError("Le mot de passe est obligatoire."); return; }
-    try {
-      const verifData = { utilisateur_id: currentUserId, mot_de_passe: password.trim() };
->>>>>>> Stashed changes
-      await axios.post(`${API_BASE_URL}/api/verifier-mdp`, verifData);
-      console.log('Mot de passe vérifié avec succès');
-
-      const finalName = newDiseaseName === 'Autre' ? customDiseaseName.trim() : newDiseaseName;
-<<<<<<< Updated upstream
-
-      if (modalMode === 'edit') {
-        // Mode modification
-        const updateData = {
-          nom_maladie: finalName,
-          type_maladie: newDiseaseType || 'Standard',
-          utilisateur_id: parseInt(user.id)
-        };
-
-        await axios.put(`${API_BASE_URL}/api/diagnostic/${selectedImage.id}`, updateData);
-      } else {
-        // Mode ajout - créer un nouveau diagnostic en utilisant l'image existante
-        const imageUrl = `${API_BASE_URL}/${selectedGroup.image_url}`;
-        
-        try {
-          // Télécharger l'image
-          const imageResponse = await axios.get(imageUrl, { responseType: 'blob' });
-          const imageBlob = imageResponse.data;
-          
-          // Créer un fichier à partir du blob
-          const fileName = selectedGroup.image_url.split('/').pop() || 'image.jpg';
-          const imageFile = new File([imageBlob], fileName, { type: imageBlob.type || 'image/jpeg' });
-
-          const formData = new FormData();
-          formData.append('file', imageFile);
-          formData.append('nom_maladie', finalName);
-          formData.append('type_maladie', newDiseaseType || 'Standard');
-          formData.append('utilisateur_id', parseInt(user.id));
-          formData.append('nom_medecin_diagnostiqueur', `${user.prenom} ${user.nom}`);
-
-          await axios.post(`${API_BASE_URL}/api/diagnostic/`, formData);
-          console.log('✅ Diagnostic ajouté avec succès');
-        } catch (uploadError) {
-          console.error('❌ Erreur upload:', uploadError);
-          throw uploadError;
-        }
-      }
-
-      // Fermer le modal immédiatement
-      setShowModal(false);
-      setIsRefreshing(true);
-      
-      // Réinitialiser les états pour forcer un re-render complet
-      setGroupedImages([]);
-      setMyDiagnostics([]);
-      
-      console.log('⏳ Attente du traitement backend...');
-      
-      // Attendre que le backend traite complètement
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      console.log('🔄 Rechargement complet des données...');
-      
-      // Recharger toutes les données - FORCER le rechargement
-      await fetchImages();
-      await fetchMyDiagnostics();
-      
-      // Attendre encore un peu pour être sûr que le state est mis à jour et le re-render effectué
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      setIsRefreshing(false);
-      console.log('✅ Rafraîchissement terminé - vérifiez les images violettes');
-      
-    } catch (e) {
-      console.error('❌ Erreur lors de la validation:', e);
-      console.error('Détails erreur:', e.response?.data);
-      setError(e.response?.data?.detail || "Mot de passe incorrect ou erreur serveur.");
-      setIsRefreshing(false);
-    }
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!deleteTarget) {
-      setDeleteError("Aucun avis sélectionné.");
-      return;
-    }
-    setDeleteError('');
-    if (!deletePassword) {
-      setDeleteError("Le mot de passe est obligatoire.");
-      return;
-    }
-
-    try {
-      const user = JSON.parse(localStorage.getItem("user"));
-      if (!user || !user.id) {
-        setDeleteError("Session expirée. Reconnectez-vous.");
-        return;
-      }
-
-      const verifData = {
-        utilisateur_id: parseInt(user.id),
-        mot_de_passe: deletePassword.trim()
-      };
-
-      await axios.post(`${API_BASE_URL}/api/verifier-mdp`, verifData);
-
-      await axios.delete(`${API_BASE_URL}/api/diagnostic/${deleteTarget.id}`, {
-        data: { utilisateur_id: parseInt(user.id) }
       });
 
-      // Fermer le modal
-      setShowDeleteModal(false);
-      setIsRefreshing(true);
-      
-      // Réinitialiser pour forcer le re-render
-      setGroupedImages([]);
-      setMyDiagnostics([]);
-      
-      // Attendre que le backend traite complètement
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Recharger toutes les données
-      await fetchImages();
-      await fetchMyDiagnostics();
-      
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      setIsRefreshing(false);
-      console.log('✅ Données rafraîchies après suppression');
-      
-    } catch (e) {
-      setDeleteError(e.response?.data?.detail || "Mot de passe incorrect ou erreur serveur.");
-      setIsRefreshing(false);
-=======
+      const finalName = newDiseaseName === 'Autre' ? customDiseaseName : newDiseaseName;
 
       if (modalMode === 'edit') {
-        const updateData = { nom_maladie: finalName, type_maladie: newDiseaseType || 'Standard', utilisateur_id: currentUserId };
-        await axios.put(`${API_BASE_URL}/api/diagnostic/${selectedImage.id}`, updateData);
+        await axios.put(`${API_BASE_URL}/api/diagnostic/${selectedImage.id}`, {
+          nom_maladie: finalName,
+          type_maladie: newDiseaseType || 'Standard',
+          utilisateur_id: Number(currentUserId)
+        });
       } else {
-        const imageUrl = `${API_BASE_URL}/${selectedGroup.image_url}`;
-        const imageResponse = await axios.get(imageUrl, { responseType: 'blob' });
-        const fileName = selectedGroup.image_url.split('/').pop() || 'image.jpg';
-        const imageFile = new File([imageResponse.data], fileName, { type: imageResponse.data.type });
-
         const formData = new FormData();
-        formData.append('file', imageFile);
+        formData.append('image_hash_existant', selectedGroup.image_hash);
         formData.append('nom_maladie', finalName);
         formData.append('type_maladie', newDiseaseType || 'Standard');
-        formData.append('utilisateur_id', currentUserId);
+        formData.append('utilisateur_id', Number(currentUserId));
         formData.append('nom_medecin_diagnostiqueur', `${currentUser.prenom} ${currentUser.nom}`);
         await axios.post(`${API_BASE_URL}/api/diagnostic/`, formData);
       }
 
       setShowModal(false);
       setIsRefreshing(true);
-      await new Promise(r => setTimeout(r, 1500));
-      await Promise.all([fetchImages(), fetchMyDiagnostics()]);
+      await fetchData();
       setIsRefreshing(false);
     } catch (e) {
       setError(e.response?.data?.detail || "Erreur lors de la validation.");
->>>>>>> Stashed changes
     }
   };
 
   const handleDeleteConfirm = async () => {
     try {
-      const verifData = { utilisateur_id: currentUserId, mot_de_passe: deletePassword.trim() };
-      await axios.post(`${API_BASE_URL}/api/verifier-mdp`, verifData);
-      await axios.delete(`${API_BASE_URL}/api/diagnostic/${deleteTarget.id}`);
-      
+      await axios.post(`${API_BASE_URL}/api/verifier-mdp`, {
+        utilisateur_id: Number(currentUserId),
+        mot_de_passe: deletePassword.trim()
+      });
+      await axios.delete(`${API_BASE_URL}/api/diagnostic/${deleteTarget.id}`, {
+        data: { utilisateur_id: Number(currentUserId) }
+      });
       setShowDeleteModal(false);
       setIsRefreshing(true);
-      await new Promise(r => setTimeout(r, 1500));
-      await Promise.all([fetchImages(), fetchMyDiagnostics()]);
+      await fetchData();
       setIsRefreshing(false);
     } catch (e) {
-      setDeleteError(e.response?.data?.detail || "Erreur de suppression.");
+      setDeleteError("Mot de passe incorrect ou erreur serveur.");
     }
   };
-
-  // --- UTILITAIRES DE VALIDATION ---
-  const normalize = (v) => v?.toString().trim().toLowerCase().split(/\s+/).join(' ') || '';
-  const avisKey = (a) => `${normalize(a.nom_maladie)}::${normalize(a.type_maladie)}`;
-  
-  const isValidated = (group) => {
-    if (group.avis.length < 2) return false;
-    const keys = new Set(group.avis.map(avisKey));
-    return keys.size === 1;
-  };
-
-  const canAddAvis = (group) => {
-    if (!currentUserId || isValidated(group)) return false;
-    const hasUserAvis = group.avis.some(avi => parseInt(avi.utilisateur_id) === currentUserId);
-    return !hasUserAvis && group.avis.length < 3;
-  };
-
-  const eligibleGroups = groupedImages.filter(canAddAvis);
-  const validatedGroups = groupedImages.filter(group => 
-    isValidated(group) && !group.avis.some(a => parseInt(a.utilisateur_id) === currentUserId)
-  );
-  const allAvailableGroups = [...eligibleGroups, ...validatedGroups];
 
   // --- RENDU ---
-  const renderImageCard = (group, showActions = true) => {
-    const validated = isValidated(group);
-    return (
-      <div key={group.image_hash} className={`rounded-3xl overflow-hidden border flex flex-col shadow-2xl ${validated ? 'bg-purple-900/20 border-purple-500/30' : 'bg-white/10 border-white/10'}`}>
-        <div className="h-56 bg-black relative">
-          <img src={`${API_BASE_URL}/${group.image_url}`} className="w-full h-full object-cover" alt="Otoscopie" />
-          <div className={`absolute top-3 left-3 text-white text-[10px] px-2 py-1 rounded-full font-bold uppercase ${validated ? 'bg-purple-600' : 'bg-cyan-500'}`}>
-            {group.avis.length} Avis
-          </div>
-          {validated && (
-            <div className="absolute top-3 right-3 bg-purple-600 text-white text-[10px] px-2 py-1 rounded-full font-bold uppercase">✓ Validé</div>
-          )}
-        </div>
-        <div className="p-5 flex-1 flex flex-col space-y-4">
-          {validated ? (
-            <div className="rounded-2xl p-4 border bg-purple-500/10 border-purple-500/30">
-              <p className="text-xl font-bold text-purple-300">{group.avis[0].nom_maladie}</p>
-              <p className="text-sm text-purple-200 italic mb-3">{group.avis[0].type_maladie}</p>
-              <div className="space-y-1">
-                {group.avis.map(avi => (
-                  <div key={avi.id} className="text-[11px] text-purple-200">Dr. {avi.medecin}</div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {group.avis.map(avi => (
-                <div key={avi.id} className="bg-white/5 rounded-2xl p-3 border border-white/5">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="text-sm font-bold text-cyan-400">{avi.nom_maladie}</p>
-                      <p className="text-[10px] text-slate-400">Dr. {avi.medecin}</p>
-                    </div>
-                    {showActions && currentUserId === parseInt(avi.utilisateur_id) && (
-                      <div className="flex gap-2">
-                        <button onClick={() => handleEditClick(avi)} className="p-2 bg-white/10 rounded-lg hover:text-cyan-400"><Edit size={12}/></button>
-                        <button onClick={() => handleDeleteClick(avi)} className="p-2 bg-white/10 rounded-lg hover:text-red-400"><Trash2 size={12}/></button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          {activeTab === 'disponibles' && !validated && (
-            <button onClick={() => handleAddClick(group)} className="w-full py-3 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-xl font-bold text-sm">
-              Ajouter mon avis
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-<<<<<<< Updated upstream
-  const normalizeAvisValue = (value) => {
-    if (!value) return '';
-    return value.toString().trim().toLowerCase().split(/\s+/).join(' ');
-  };
-
-  const avisKey = (avis) => `${normalizeAvisValue(avis.nom_maladie)}::${normalizeAvisValue(avis.type_maladie)}`;
-
-  // Fonction pour déterminer le statut d'une image selon le nombre et la concordance des avis
-  const getAvisStatus = (group) => {
-    if (group.avis.length === 1) return 'single'; // 1 avis → affichage vert
-    if (group.avis.length >= 2) {
-      const keys = new Set(group.avis.map(avisKey));
-      if (keys.size === 1) return 'validated'; // 2+ avis concordants → violet validé
-      return 'divergent'; // 2+ avis différents → affichage normal
-    }
-    return 'normal';
-  };
-
-  const canAddAvis = (group) => {
-    if (!currentUserId) {
-      return false;
-    }
-    
-    const status = getAvisStatus(group);
-    
-    // Si déjà validé (2+ avis concordants), on ne peut plus ajouter
-    if (status === 'validated') {
-      return false;
-    }
-    
-    const avisCount = group.avis.length;
-    
-    // Comparer les IDs en tant qu'entiers pour éviter les problèmes de type
-    const hasUserAvis = group.avis.some(avi => parseInt(avi.utilisateur_id) === currentUserId);
-    
-    if (hasUserAvis) {
-      console.log(`Image ${group.image_hash}: utilisateur ${currentUserId} a déjà donné un avis`);
-      return false;
-    }
-    
-    // Limites : 2 avis maximum SI concordants, 3 avis si divergents
-    if (status === 'single') {
-      // 1 avis → permettre 2ème avis
-      console.log(`Image ${group.image_hash}: disponible pour ${currentUserId} (1 avis)`);
-      return true;
-    } else if (status === 'divergent' && avisCount < 3) {
-      // 2 avis différents → permettre 3ème avis pour validation finale
-      console.log(`Image ${group.image_hash}: disponible pour ${currentUserId} (2 avis divergents, 3ème avis autorisé)`);
-      return true;
-    }
-    
-    return false;
-  };
-
-  const isConcordant = (group) => {
-    if (group.avis.length < 2) return false;
-    const keys = new Set(group.avis.map(avisKey));
-    return keys.size === 1;
-  };
-
-  const isValidated = (group) => {
-    // Un avis est validé si au moins 2 médecins ont le même diagnostic
-    if (group.avis.length < 2) return false;
-    const keys = new Set(group.avis.map(avisKey));
-    const validated = keys.size === 1; // Tous les avis sont identiques
-    if (validated) {
-      console.log(`🟣 Image ${group.image_hash} VALIDÉE - ${group.avis.length} avis concordants:`, 
-        group.avis.map(a => `${a.nom_maladie} (${a.medecin})`).join(', '));
-    }
-    return validated;
-  };
-
-  const eligibleGroups = groupedImages.filter(canAddAvis);
-  const validatedGroups = groupedImages.filter(group => 
-    isValidated(group) && !group.avis.some(a => parseInt(a.utilisateur_id) === currentUserId)
-  );
-  const allAvailableGroups = [...eligibleGroups, ...validatedGroups];
-  
-  // Log détaillé pour chaque image
-  const validatedCount = groupedImages.filter(isValidated).length;
-  console.log(`📊 Images - Total: ${groupedImages.length} | Disponibles: ${eligibleGroups.length} | Validées (total): ${validatedCount} | User: ${currentUserId}`);
-
-  // Fonction pour afficher une carte d'image
-  const renderImageCard = (group, keyValue, showActions = true) => {
+  const renderImageCard = (group) => {
     const status = getAvisStatus(group);
     const validated = status === 'validated';
-    const isSingle = status === 'single';
-    const medecinsList = group.avis.map(a => `Dr. ${a.medecin}`).join(' & ');
-    
-    // Déterminer les classes CSS selon le statut
-    let cardClass = 'bg-white/10 border-white/10';
-    if (validated) {
-      cardClass = 'bg-purple-900/20 border-purple-500/30';
-    } else if (isSingle) {
-      cardClass = 'bg-green-900/20 border-green-500/30';
-    }
     
     return (
-      <div key={keyValue} className={`rounded-3xl overflow-hidden border flex flex-col shadow-2xl ${cardClass}`}>
-        <div className="h-56 bg-black relative">
-          <img 
-            src={`${API_BASE_URL}/${group.image_url}`} 
-            className="w-full h-full object-cover" 
-            alt="Otoscopie" 
-            onError={(e) => {
-              console.error("Erreur chargement image:", group.image_url);
-              e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect fill='%23333' width='100' height='100'/%3E%3Ctext fill='%23fff' x='50%25' y='50%25' text-anchor='middle' dy='.3em'%3EImage%3C/text%3E%3C/svg%3E";
-            }}
-          />
-          <div className={`absolute top-3 left-3 text-white text-[10px] px-2 py-1 rounded-full font-bold uppercase ${validated ? 'bg-purple-600' : (isSingle ? 'bg-green-600' : 'bg-cyan-500')}`}>
-            {group.avis.length} {group.avis.length > 1 ? 'Avis' : 'Avis'}
+      <div key={group.image_hash} className={`rounded-3xl overflow-hidden border flex flex-col shadow-xl bg-white/5 transition-all ${validated ? 'border-purple-500/40 bg-purple-500/5' : 'border-white/10'}`}>
+        <div className="h-48 bg-black relative">
+          <img src={`${API_BASE_URL}/${group.image_url}`} className="w-full h-full object-cover" alt="Tympan" />
+          <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md px-2 py-1 rounded-lg text-[10px] font-bold">
+            {group.avis.length} AVIS
           </div>
-          {activeTab === 'disponibles' && (
-            <div className={`absolute top-3 right-3 text-[10px] px-2 py-1 rounded-full font-bold uppercase ${validated ? 'bg-purple-600 text-white' : (isSingle ? 'bg-green-600 text-white' : 'bg-amber-500 text-white')}`}>
-              {validated ? '✓ Validé' : (isSingle ? 'En attente' : 'Divergent')}
-            </div>
-          )}
-          {validated && activeTab === 'mes-diagnostics' && (
-            <div className="absolute top-3 right-3 bg-purple-600 text-white text-[10px] px-2 py-1 rounded-full font-bold uppercase">
-              ✓ Validé
-            </div>
-          )}
-          {isSingle && activeTab === 'mes-diagnostics' && (
-            <div className="absolute top-3 right-3 bg-green-600 text-white text-[10px] px-2 py-1 rounded-full font-bold uppercase">
-              En attente
-            </div>
-          )}
+          {validated && <div className="absolute top-2 right-2 bg-purple-600 px-2 py-1 rounded-lg text-[10px] font-bold uppercase italic shadow-lg">✓ Validé</div>}
         </div>
 
-        <div className="p-5 flex-1 flex flex-col space-y-4">
-          {validated ? (
-            // Affichage pour avis validés - EN VIOLET
-            <div className={`rounded-2xl p-4 border ${validated ? 'bg-purple-500/10 border-purple-500/30' : 'bg-white/5 border-white/5'}`}>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-3 h-3 bg-purple-500 rounded-full animate-pulse"></div>
-                <span className="text-sm font-bold text-purple-400 uppercase tracking-wide">Diagnostic Validé</span>
-              </div>
-              <div className="mb-4 p-3 bg-purple-600/10 rounded-lg border border-purple-500/20">
-                <p className="text-xl font-bold text-purple-300 mb-1">{group.avis[0].nom_maladie}</p>
-                <p className="text-sm text-purple-200 italic">{group.avis[0].type_maladie}</p>
-              </div>
-              <div className="pt-3 border-t border-purple-500/20">
-                <p className="text-[10px] text-purple-400 font-bold uppercase mb-2 flex items-center gap-1">
-                  <UserCircle size={12} />
-                  Médecins concordants :
-                </p>
-                <div className="space-y-2">
-                  {group.avis.map((avi, index) => (
-                    <div key={avi.id} className="flex items-center justify-between bg-purple-500/5 p-2 rounded-lg">
-                      <span className="text-sm text-purple-200 font-medium">Dr. {avi.medecin}</span>
-                      <span className="text-[9px] text-purple-400">{avi.date}</span>
-                    </div>
-                  ))}
+        <div className="p-4 flex-1 flex flex-col justify-between space-y-4">
+          <div className="space-y-2">
+            {group.avis.map(avi => (
+              <div key={avi.id} className={`flex justify-between items-center p-2 rounded-xl border ${Number(avi.utilisateur_id) === currentUserId ? 'bg-cyan-500/10 border-cyan-500/20' : 'bg-white/5 border-white/5'}`}>
+                <div className="overflow-hidden">
+                  <p className={`text-xs font-bold truncate ${Number(avi.utilisateur_id) === currentUserId ? 'text-cyan-400' : 'text-slate-300'}`}>{avi.nom_maladie}</p>
+                  <p className="text-[10px] text-slate-500 italic">Dr. {avi.medecin}</p>
                 </div>
+                {Number(avi.utilisateur_id) === currentUserId && (
+                  <div className="flex gap-1 ml-2">
+                    <button onClick={() => handleEditClick(avi)} className="p-1.5 hover:bg-cyan-500/20 rounded-lg text-cyan-400 transition-colors"><Edit size={14}/></button>
+                    <button onClick={() => {setDeleteTarget(avi); setShowDeleteModal(true);}} className="p-1.5 hover:bg-red-500/20 rounded-lg text-red-400 transition-colors"><Trash2 size={14}/></button>
+                  </div>
+                )}
               </div>
-            </div>
-          ) : (
-            // Affichage pour avis non validés (1 avis en vert, 2+ divergents en normal)
-            <div className="space-y-3">
-              {group.avis.map(avi => (
-                <div key={avi.id} className={`rounded-2xl p-3 border relative group/item ${isSingle ? 'bg-green-500/10 border-green-500/30' : 'bg-white/5 border-white/5'}`}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <UserCircle size={14} className="text-slate-400" />
-                    <span className="text-[10px] font-bold text-slate-300">Dr. {avi.medecin}</span>
-                    <span className="text-[9px] text-slate-500 ml-auto">{avi.date}</span>
-                  </div>
-                  <div className="flex justify-between items-end">
-                    <div>
-                      <p className={`text-sm font-bold ${isSingle ? 'text-green-400' : 'text-cyan-400'}`}>{avi.nom_maladie}</p>
-                      <p className={`text-[10px] italic ${isSingle ? 'text-green-300' : 'text-slate-400'}`}>{avi.type_maladie}</p>
-                    </div>
+            ))}
+          </div>
 
-                    {showActions && currentUserId === parseInt(avi.utilisateur_id) && (
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => handleEditClick(avi)}
-                          className="p-2 bg-white/10 rounded-lg hover:bg-cyan-500/20 hover:text-cyan-400 transition-all"
-                        >
-                          <Edit size={12} />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteClick(avi)}
-                          className="p-2 bg-white/10 rounded-lg hover:bg-red-500/20 hover:text-red-400 transition-all"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Bouton pour ajouter un avis (seulement dans Images Disponibles et si pas validé) */}
-          {activeTab === 'disponibles' && !validated && (
-            <button
-              onClick={() => handleAddClick(group)}
-              className="w-full py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-xl font-bold text-sm transition-all shadow-lg flex items-center justify-center gap-2"
-            >
-              <Lock size={14} />
-              Ajouter mon avis
+          {activeTab === 'disponibles' && (
+            <button onClick={() => handleAddClick(group)} className="w-full py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-xl text-xs font-bold shadow-lg transition-all">
+              Donner mon avis
             </button>
           )}
-=======
-  return (
-    <div className="min-h-screen bg-slate-900 p-8 text-white">
-      <div className="max-w-6xl mx-auto bg-white/5 backdrop-blur-md rounded-3xl p-8 border border-white/10">
-        <div className="flex items-center gap-3 mb-6">
-          <ImageIcon className="w-8 h-8 text-cyan-400" />
-          <h2 className="text-3xl font-bold">Galerie Collaborative</h2>
-          {isRefreshing && <span className="ml-auto text-xs text-cyan-400 animate-pulse">Actualisation...</span>}
-        </div>
-
-        <div className="flex gap-4 mb-8 border-b border-white/10">
-          <button onClick={() => setActiveTab('mes-diagnostics')} className={`px-6 py-3 font-bold ${activeTab === 'mes-diagnostics' ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400'}`}>
-            Mes Diagnostics ({myDiagnostics.length})
-          </button>
-          <button onClick={() => setActiveTab('disponibles')} className={`px-6 py-3 font-bold ${activeTab === 'disponibles' ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400'}`}>
-            Images Disponibles ({allAvailableGroups.length})
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {(activeTab === 'mes-diagnostics' ? myDiagnostics : allAvailableGroups).map(group => renderImageCard(group, activeTab === 'mes-diagnostics'))}
->>>>>>> Stashed changes
         </div>
       </div>
     );
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 p-8 text-white">
-      <div className="max-w-6xl mx-auto bg-white/5 backdrop-blur-md rounded-3xl p-8 border border-white/10">
-        <div className="flex items-center gap-3 mb-6">
-          <ImageIcon className="w-8 h-8 text-cyan-400" />
-          <h2 className="text-3xl font-bold">Galerie Collaborative</h2>
-          {isRefreshing && (
-            <div className="ml-auto flex items-center gap-2 bg-cyan-500/20 px-3 py-1 rounded-full">
-              <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
-              <span className="text-xs text-cyan-400">Actualisation...</span>
+    <div className="min-h-screen bg-slate-900 p-6 text-white font-sans selection:bg-cyan-500/30">
+      <div className="max-w-6xl mx-auto">
+        <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-4">
+                <div className="p-3 bg-cyan-500/20 rounded-2xl border border-cyan-500/20"><ImageIcon className="text-cyan-400" /></div>
+                <div>
+                    <h1 className="text-2xl font-bold tracking-tight">Galerie Collaborative</h1>
+                    <p className="text-slate-400 text-xs">Suivi des diagnostics et consensus médical</p>
+                </div>
             </div>
-          )}
+            {isRefreshing && <div className="flex items-center gap-2 text-cyan-400 text-xs animate-pulse"><div className="w-2 h-2 bg-cyan-400 rounded-full"></div> Synchronisation...</div>}
         </div>
 
-        {/* Onglets */}
-        <div className="flex gap-4 mb-8 border-b border-white/10">
-          <button
-            onClick={() => setActiveTab('mes-diagnostics')}
-            className={`px-6 py-3 font-bold transition-all ${
-              activeTab === 'mes-diagnostics'
-                ? 'text-cyan-400 border-b-2 border-cyan-400'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Mes Diagnostics ({myDiagnostics.length})
+        <div className="flex gap-8 mb-8 border-b border-white/5">
+          <button onClick={() => setActiveTab('mes-diagnostics')} className={`pb-4 text-sm font-bold transition-all relative ${activeTab === 'mes-diagnostics' ? 'text-cyan-400' : 'text-slate-500 hover:text-slate-300'}`}>
+            Mes Diagnostics ({myDiagnosticsGroups.length})
+            {activeTab === 'mes-diagnostics' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.6)]"></div>}
           </button>
-          <button
-            onClick={() => setActiveTab('disponibles')}
-            className={`px-6 py-3 font-bold transition-all ${
-              activeTab === 'disponibles'
-                ? 'text-cyan-400 border-b-2 border-cyan-400'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Images Disponibles ({allAvailableGroups.length})
+          <button onClick={() => setActiveTab('disponibles')} className={`pb-4 text-sm font-bold transition-all relative ${activeTab === 'disponibles' ? 'text-cyan-400' : 'text-slate-500 hover:text-slate-300'}`}>
+            Contribuer ({availableGroups.length})
+            {activeTab === 'disponibles' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.6)]"></div>}
           </button>
         </div>
 
-        {/* Contenu selon l'onglet actif */}
-        {activeTab === 'mes-diagnostics' ? (
-          myDiagnostics.length === 0 ? (
-            <div className="text-center text-slate-400 text-sm py-12">Vous n'avez pas encore de diagnostics.</div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {myDiagnostics.map((group) => renderImageCard(group, group.image_hash, true))}
-            </div>
-          )
-        ) : (
-          allAvailableGroups.length === 0 ? (
-            <div className="text-center text-slate-400 text-sm py-12">Aucune image disponible pour un nouvel avis.</div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {allAvailableGroups.map((group) => renderImageCard(group, group.image_hash, true))}
-            </div>
-          )
-        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {(activeTab === 'mes-diagnostics' ? myDiagnosticsGroups : availableGroups).map(renderImageCard)}
+        </div>
       </div>
 
-<<<<<<< Updated upstream
+      {/* MODAL AJOUT / EDITION */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-slate-800 border border-cyan-500/30 p-6 rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-800 border border-white/10 p-6 rounded-3xl w-full max-w-sm shadow-2xl">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                <Lock className="text-cyan-400" size={18} />
-                {step === 1 ? (modalMode === 'edit' ? "Modifier mon avis" : "Ajouter mon avis") : "Signature Médicale"}
-              </h3>
-              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
+              <h3 className="font-bold text-lg">{step === 1 ? (modalMode === 'edit' ? "Modifier le diagnostic" : "Nouvel avis médical") : "Vérification de sécurité"}</h3>
+              <button onClick={() => setShowModal(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors"><X size={20}/></button>
             </div>
 
             {step === 1 ? (
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div>
-                  <label className="text-xs text-slate-400 font-bold uppercase">Maladie</label>
-                  <select 
-                    className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-white mt-1 outline-none focus:border-cyan-400"
-                    value={newDiseaseName}
-                    onChange={(e) => {
-                      setNewDiseaseName(e.target.value);
-                      setNewDiseaseType('');
-                    }}
-                  >
-                    {categoryOptions.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                  </select>
-                </div>
-
-                {newDiseaseName === 'Autre' && (
-                  <div>
-                    <label className="text-xs text-orange-400 font-bold uppercase">Nom de la maladie</label>
-                    <input 
-                      type="text"
-                      className="w-full bg-slate-900 border border-orange-500/30 p-3 rounded-xl text-white mt-1 outline-none focus:border-orange-400"
-                      value={customDiseaseName}
-                      onChange={(e) => setCustomDiseaseName(e.target.value)}
-                      placeholder="Saisir..."
-                    />
-                  </div>
-                )}
-
-                {currentOptions.length > 0 && (
-                  <div>
-                    <label className="text-xs text-slate-400 font-bold uppercase">Type / Stade</label>
-                    <select 
-                      className="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl text-white mt-1 outline-none focus:border-cyan-400"
-                      value={newDiseaseType}
-                      onChange={(e) => setNewDiseaseType(e.target.value)}
-                    >
-                      <option value="">Sélectionner...</option>
-                      {currentOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                    <label className="text-[10px] text-slate-400 font-bold uppercase ml-1">Pathologie identifiée</label>
+                    <select value={newDiseaseName} onChange={e => setNewDiseaseName(e.target.value)} className="w-full bg-slate-900 mt-1.5 p-3 rounded-xl border border-white/10 outline-none focus:border-cyan-500/50 transition-all">
+                    {categoryOptions.map(c => <option key={c.name} value={c.name}>{c.fullName}</option>)}
                     </select>
-                  </div>
+                </div>
+                {newDiseaseName === 'Autre' && (
+                  <input value={customDiseaseName} onChange={e => setCustomDiseaseName(e.target.value)} placeholder="Précisez la pathologie..." className="w-full bg-slate-900 p-3 rounded-xl border border-white/10 outline-none focus:border-cyan-500/50 transition-all" />
                 )}
-
-                <button className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl font-bold mt-4 transition-all shadow-lg" onClick={goToConfirmation}>
-                  Vérifier
-                </button>
+                <button onClick={() => setStep(2)} className="w-full py-3.5 bg-cyan-600 hover:bg-cyan-500 rounded-2xl font-bold mt-2 shadow-lg transition-all">Suivant</button>
               </div>
             ) : (
-              <div className="space-y-5">
-                <div className="p-4 bg-slate-900 rounded-xl border border-slate-700">
-                  <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">
-                    {modalMode === 'edit' 
-                      ? `Modification pour Dr. ${selectedImage?.medecin}` 
-                      : `Nouveau diagnostic par Dr. ${currentUser?.prenom} ${currentUser?.nom}`}
-                  </p>
-                  <p className="text-lg font-bold text-white">{newDiseaseName === 'Autre' ? customDiseaseName : newDiseaseName}</p>
-                  <p className="text-sm text-cyan-400">{newDiseaseType || 'Standard'}</p>
-                </div>
-
-                <div>
-                  <label className="text-xs text-orange-400 font-bold uppercase">Mot de passe</label>
-                  <input 
-                    type="password" 
-                    className="w-full bg-slate-900 border border-orange-500/50 p-3 rounded-xl text-white mt-1 outline-none focus:border-orange-400" 
-                    value={password} 
-                    onChange={e => setPassword(e.target.value)} 
-                    placeholder="Confirmer" 
-                  />
-                </div>
-
-                {error && <div className="text-red-400 text-xs bg-red-400/10 p-3 rounded-lg border border-red-400/20">{error}</div>}
-
+              <div className="space-y-4">
+                <p className="text-xs text-slate-400 px-1">Veuillez saisir votre mot de passe pour confirmer l'action.</p>
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Mot de passe" className="w-full bg-slate-900 p-3 rounded-xl border border-white/10 outline-none focus:border-cyan-500/50 transition-all" autoFocus />
+                {error && <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[11px] animate-shake">{error}</div>}
                 <div className="flex gap-3">
-                  <button className="flex-1 py-3 bg-slate-700 rounded-xl font-bold text-sm" onClick={() => setStep(1)}>Retour</button>
-                  <button className="flex-1 py-3 bg-cyan-600 rounded-xl font-bold text-sm shadow-lg" onClick={handleConfirm}>
-                    {modalMode === 'edit' ? 'Modifier' : 'Enregistrer'}
-                  </button>
+                  <button onClick={() => setStep(1)} className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded-2xl font-bold text-sm transition-all">Retour</button>
+                  <button onClick={handleConfirm} className="flex-1 py-3 bg-cyan-600 hover:bg-cyan-500 rounded-2xl font-bold text-sm transition-all">Confirmer</button>
                 </div>
               </div>
             )}
-=======
-      {/* MODALS REUTILISES - EDIT/ADD */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 border border-white/10 rounded-3xl max-w-md w-full p-8">
-             <div className="flex justify-between mb-6">
-               <h3 className="text-xl font-bold">{step === 1 ? (modalMode === 'edit' ? "Modifier" : "Ajouter") : "Confirmation"}</h3>
-               <button onClick={() => setShowModal(false)}><X/></button>
-             </div>
-             {step === 1 ? (
-               <div className="space-y-4">
-                 <select value={newDiseaseName} onChange={(e) => setNewDiseaseName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3">
-                   {categoryOptions.map(cat => <option key={cat.name} value={cat.name}>{cat.fullName}</option>)}
-                 </select>
-                 <button onClick={() => setStep(2)} className="w-full py-3 bg-cyan-600 rounded-xl font-bold">Suivant</button>
-               </div>
-             ) : (
-               <div className="space-y-4">
-                 <input type="password" placeholder="Mot de passe" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3" />
-                 {error && <p className="text-red-400 text-xs">{error}</p>}
-                 <div className="flex gap-2">
-                   <button onClick={() => setStep(1)} className="flex-1 py-3 bg-slate-700 rounded-xl">Retour</button>
-                   <button onClick={handleConfirm} className="flex-1 py-3 bg-cyan-600 rounded-xl font-bold">Confirmer</button>
-                 </div>
-               </div>
-             )}
           </div>
         </div>
       )}
 
-      {/* MODAL DELETE */}
+      {/* MODAL SUPPRESSION */}
       {showDeleteModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 border border-red-500/30 rounded-3xl max-w-md w-full p-8 text-center">
-            <AlertCircle className="mx-auto text-red-500 mb-4" size={48} />
-            <h3 className="text-xl font-bold mb-6">Confirmer la suppression ?</h3>
-            <input type="password" placeholder="Mot de passe de confirmation" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 mb-4" />
-            {deleteError && <p className="text-red-400 text-xs mb-4">{deleteError}</p>}
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 border border-red-500/20 p-6 rounded-3xl w-full max-w-sm">
+            <h3 className="text-lg font-bold mb-2 text-red-400">Supprimer cet avis ?</h3>
+            <p className="text-xs text-slate-400 mb-6">Votre expertise sera retirée de cette image. Si vous étiez le dernier votant, l'image pourrait redevenir "À contribuer".</p>
+            <input type="password" value={deletePassword} onChange={e => setDeletePassword(e.target.value)} placeholder="Mot de passe de confirmation" className="w-full bg-slate-900 p-3 rounded-xl border border-white/10 outline-none focus:border-red-500/50 mb-4" />
+            {deleteError && <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-[11px]">{deleteError}</div>}
             <div className="flex gap-3">
-              <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-3 bg-slate-700 rounded-xl font-bold">Annuler</button>
-              <button onClick={handleDeleteConfirm} className="flex-1 py-3 bg-red-600 rounded-xl font-bold">Supprimer</button>
-            </div>
->>>>>>> Stashed changes
-          </div>
-        </div>
-      )}
-
-      {showDeleteModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-slate-800 border border-red-500/30 p-6 rounded-2xl w-full max-w-md shadow-2xl">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                <AlertCircle className="text-red-400" size={18} />
-                Supprimer cet avis
-              </h3>
-              <button onClick={() => setShowDeleteModal(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
-            </div>
-
-            <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-xl text-[11px] text-red-200 mb-4">
-              Êtes-vous sûr de supprimer cet avis ? Si vous continuez, il sera définitivement supprimé de la base de données.
-            </div>
-
-            <div>
-              <label className="text-xs text-orange-400 font-bold uppercase">Mot de passe</label>
-              <input
-                type="password"
-                className="w-full bg-slate-900 border border-orange-500/50 p-3 rounded-xl text-white mt-1 outline-none focus:border-orange-400"
-                value={deletePassword}
-                onChange={e => setDeletePassword(e.target.value)}
-                placeholder="Confirmer"
-              />
-            </div>
-
-            {deleteError && <div className="text-red-400 text-xs bg-red-400/10 p-3 rounded-lg border border-red-400/20 mt-3">{deleteError}</div>}
-
-            <div className="flex gap-3 mt-4">
-              <button className="flex-1 py-3 bg-slate-700 rounded-xl font-bold text-sm" onClick={() => setShowDeleteModal(false)}>Annuler</button>
-              <button className="flex-1 py-3 bg-red-600 rounded-xl font-bold text-sm shadow-lg" onClick={handleDeleteConfirm}>Supprimer</button>
+              <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-3 bg-slate-700 rounded-2xl font-bold text-sm">Annuler</button>
+              <button onClick={handleDeleteConfirm} className="flex-1 py-3 bg-red-600 hover:bg-red-500 rounded-2xl font-bold text-sm transition-all">Supprimer</button>
             </div>
           </div>
         </div>
