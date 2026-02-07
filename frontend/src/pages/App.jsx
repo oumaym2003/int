@@ -5,7 +5,7 @@ import Accueil from './components/Accueil';
 
 function App() {
   return (
-    <Router>
+    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         {/* Route par défaut - redirige vers login */}
         <Route path="/" element={<Navigate to="/login" replace />} />

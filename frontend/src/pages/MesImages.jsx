@@ -13,7 +13,11 @@ const categoryOptions = [
 ];
 
 const MesImages = () => {
+<<<<<<< Updated upstream
   const [activeTab, setActiveTab] = useState('mes-diagnostics'); // 'mes-diagnostics' ou 'disponibles'
+=======
+  const [activeTab, setActiveTab] = useState('mes-diagnostics');
+>>>>>>> Stashed changes
   const [myDiagnostics, setMyDiagnostics] = useState([]);
   const [groupedImages, setGroupedImages] = useState([]);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -22,12 +26,21 @@ const MesImages = () => {
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+<<<<<<< Updated upstream
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [newDiseaseName, setNewDiseaseName] = useState('');
   const [newDiseaseType, setNewDiseaseType] = useState('');
   const [customDiseaseName, setCustomDiseaseName] = useState('');
 
+=======
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [modalMode, setModalMode] = useState('edit');
+  const [newDiseaseName, setNewDiseaseName] = useState('');
+  const [newDiseaseType, setNewDiseaseType] = useState('');
+  const [customDiseaseName, setCustomDiseaseName] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+>>>>>>> Stashed changes
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [step, setStep] = useState(1);
@@ -35,7 +48,10 @@ const MesImages = () => {
   const [deleteError, setDeleteError] = useState('');
 
   const API_BASE_URL = "http://127.0.0.1:8000";
+  const currentUser = JSON.parse(localStorage.getItem("user") || "null");
+  const currentUserId = currentUser?.id ? parseInt(currentUser.id) : null;
 
+<<<<<<< Updated upstream
   const currentUser = JSON.parse(localStorage.getItem("user") || "null");
   const currentUserId = currentUser?.id ? parseInt(currentUser.id) : null;
 
@@ -122,7 +138,52 @@ const MesImages = () => {
       mounted = false;
     };
   }, [currentUserId, fetchMyDiagnostics, fetchImages]);
+=======
+  // --- LOGIQUE DE REGROUPEMENT ---
+  const groupData = (data) => {
+    const groups = data.reduce((acc, current) => {
+      const hash = current.image_hash;
+      if (!acc[hash]) {
+        acc[hash] = {
+          image_url: current.image_url,
+          image_hash: hash,
+          avis: []
+        };
+      }
+      acc[hash].avis.push(current);
+      return acc;
+    }, {});
+    return Object.values(groups);
+  };
 
+  const fetchMyDiagnostics = useCallback(async () => {
+    if (!currentUserId) return;
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/diagnostics/user/${currentUserId}?_t=${Date.now()}`);
+      setMyDiagnostics(groupData(res.data));
+    } catch (err) {
+      console.error("Erreur chargement mes diagnostics:", err);
+    }
+  }, [currentUserId]);
+>>>>>>> Stashed changes
+
+  const fetchImages = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/diagnostics?_t=${Date.now()}`);
+      setGroupedImages(groupData(res.data));
+    } catch (err) {
+      console.error("Erreur chargement images:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentUserId) {
+      fetchMyDiagnostics();
+      fetchImages();
+    }
+  }, [currentUserId, fetchMyDiagnostics, fetchImages]);
+
+  // --- HANDLERS ---
   const handleEditClick = (diagnostic) => {
     setModalMode('edit');
     setSelectedImage(diagnostic);
@@ -145,6 +206,7 @@ const MesImages = () => {
     setCustomDiseaseName('');
     setNewDiseaseType('');
     setPassword('');
+<<<<<<< Updated upstream
     setError('');
     setStep(1);
     setShowModal(true);
@@ -162,11 +224,22 @@ const MesImages = () => {
       setError("Veuillez saisir le nom de la maladie.");
       return;
     }
+=======
+>>>>>>> Stashed changes
     setError('');
-    setStep(2);
+    setStep(1);
+    setShowModal(true);
+  };
+
+  const handleDeleteClick = (diagnostic) => {
+    setDeleteTarget(diagnostic);
+    setDeletePassword('');
+    setDeleteError('');
+    setShowDeleteModal(true);
   };
 
   const handleConfirm = async () => {
+<<<<<<< Updated upstream
     setError('');
     if (!password) {
       setError("Le mot de passe est obligatoire.");
@@ -188,10 +261,16 @@ const MesImages = () => {
         mot_de_passe: password.trim()
       };
 
+=======
+    if (!password) { setError("Le mot de passe est obligatoire."); return; }
+    try {
+      const verifData = { utilisateur_id: currentUserId, mot_de_passe: password.trim() };
+>>>>>>> Stashed changes
       await axios.post(`${API_BASE_URL}/api/verifier-mdp`, verifData);
       console.log('Mot de passe vérifié avec succès');
 
       const finalName = newDiseaseName === 'Autre' ? customDiseaseName.trim() : newDiseaseName;
+<<<<<<< Updated upstream
 
       if (modalMode === 'edit') {
         // Mode modification
@@ -315,11 +394,131 @@ const MesImages = () => {
     } catch (e) {
       setDeleteError(e.response?.data?.detail || "Mot de passe incorrect ou erreur serveur.");
       setIsRefreshing(false);
+=======
+
+      if (modalMode === 'edit') {
+        const updateData = { nom_maladie: finalName, type_maladie: newDiseaseType || 'Standard', utilisateur_id: currentUserId };
+        await axios.put(`${API_BASE_URL}/api/diagnostic/${selectedImage.id}`, updateData);
+      } else {
+        const imageUrl = `${API_BASE_URL}/${selectedGroup.image_url}`;
+        const imageResponse = await axios.get(imageUrl, { responseType: 'blob' });
+        const fileName = selectedGroup.image_url.split('/').pop() || 'image.jpg';
+        const imageFile = new File([imageResponse.data], fileName, { type: imageResponse.data.type });
+
+        const formData = new FormData();
+        formData.append('file', imageFile);
+        formData.append('nom_maladie', finalName);
+        formData.append('type_maladie', newDiseaseType || 'Standard');
+        formData.append('utilisateur_id', currentUserId);
+        formData.append('nom_medecin_diagnostiqueur', `${currentUser.prenom} ${currentUser.nom}`);
+        await axios.post(`${API_BASE_URL}/api/diagnostic/`, formData);
+      }
+
+      setShowModal(false);
+      setIsRefreshing(true);
+      await new Promise(r => setTimeout(r, 1500));
+      await Promise.all([fetchImages(), fetchMyDiagnostics()]);
+      setIsRefreshing(false);
+    } catch (e) {
+      setError(e.response?.data?.detail || "Erreur lors de la validation.");
+>>>>>>> Stashed changes
     }
   };
 
-  const currentOptions = categoryOptions.find(c => c.name === newDiseaseName)?.options || [];
+  const handleDeleteConfirm = async () => {
+    try {
+      const verifData = { utilisateur_id: currentUserId, mot_de_passe: deletePassword.trim() };
+      await axios.post(`${API_BASE_URL}/api/verifier-mdp`, verifData);
+      await axios.delete(`${API_BASE_URL}/api/diagnostic/${deleteTarget.id}`);
+      
+      setShowDeleteModal(false);
+      setIsRefreshing(true);
+      await new Promise(r => setTimeout(r, 1500));
+      await Promise.all([fetchImages(), fetchMyDiagnostics()]);
+      setIsRefreshing(false);
+    } catch (e) {
+      setDeleteError(e.response?.data?.detail || "Erreur de suppression.");
+    }
+  };
 
+  // --- UTILITAIRES DE VALIDATION ---
+  const normalize = (v) => v?.toString().trim().toLowerCase().split(/\s+/).join(' ') || '';
+  const avisKey = (a) => `${normalize(a.nom_maladie)}::${normalize(a.type_maladie)}`;
+  
+  const isValidated = (group) => {
+    if (group.avis.length < 2) return false;
+    const keys = new Set(group.avis.map(avisKey));
+    return keys.size === 1;
+  };
+
+  const canAddAvis = (group) => {
+    if (!currentUserId || isValidated(group)) return false;
+    const hasUserAvis = group.avis.some(avi => parseInt(avi.utilisateur_id) === currentUserId);
+    return !hasUserAvis && group.avis.length < 3;
+  };
+
+  const eligibleGroups = groupedImages.filter(canAddAvis);
+  const validatedGroups = groupedImages.filter(group => 
+    isValidated(group) && !group.avis.some(a => parseInt(a.utilisateur_id) === currentUserId)
+  );
+  const allAvailableGroups = [...eligibleGroups, ...validatedGroups];
+
+  // --- RENDU ---
+  const renderImageCard = (group, showActions = true) => {
+    const validated = isValidated(group);
+    return (
+      <div key={group.image_hash} className={`rounded-3xl overflow-hidden border flex flex-col shadow-2xl ${validated ? 'bg-purple-900/20 border-purple-500/30' : 'bg-white/10 border-white/10'}`}>
+        <div className="h-56 bg-black relative">
+          <img src={`${API_BASE_URL}/${group.image_url}`} className="w-full h-full object-cover" alt="Otoscopie" />
+          <div className={`absolute top-3 left-3 text-white text-[10px] px-2 py-1 rounded-full font-bold uppercase ${validated ? 'bg-purple-600' : 'bg-cyan-500'}`}>
+            {group.avis.length} Avis
+          </div>
+          {validated && (
+            <div className="absolute top-3 right-3 bg-purple-600 text-white text-[10px] px-2 py-1 rounded-full font-bold uppercase">✓ Validé</div>
+          )}
+        </div>
+        <div className="p-5 flex-1 flex flex-col space-y-4">
+          {validated ? (
+            <div className="rounded-2xl p-4 border bg-purple-500/10 border-purple-500/30">
+              <p className="text-xl font-bold text-purple-300">{group.avis[0].nom_maladie}</p>
+              <p className="text-sm text-purple-200 italic mb-3">{group.avis[0].type_maladie}</p>
+              <div className="space-y-1">
+                {group.avis.map(avi => (
+                  <div key={avi.id} className="text-[11px] text-purple-200">Dr. {avi.medecin}</div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {group.avis.map(avi => (
+                <div key={avi.id} className="bg-white/5 rounded-2xl p-3 border border-white/5">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-sm font-bold text-cyan-400">{avi.nom_maladie}</p>
+                      <p className="text-[10px] text-slate-400">Dr. {avi.medecin}</p>
+                    </div>
+                    {showActions && currentUserId === parseInt(avi.utilisateur_id) && (
+                      <div className="flex gap-2">
+                        <button onClick={() => handleEditClick(avi)} className="p-2 bg-white/10 rounded-lg hover:text-cyan-400"><Edit size={12}/></button>
+                        <button onClick={() => handleDeleteClick(avi)} className="p-2 bg-white/10 rounded-lg hover:text-red-400"><Trash2 size={12}/></button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {activeTab === 'disponibles' && !validated && (
+            <button onClick={() => handleAddClick(group)} className="w-full py-3 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-xl font-bold text-sm">
+              Ajouter mon avis
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+<<<<<<< Updated upstream
   const normalizeAvisValue = (value) => {
     if (!value) return '';
     return value.toString().trim().toLowerCase().split(/\s+/).join(' ');
@@ -524,6 +723,28 @@ const MesImages = () => {
               Ajouter mon avis
             </button>
           )}
+=======
+  return (
+    <div className="min-h-screen bg-slate-900 p-8 text-white">
+      <div className="max-w-6xl mx-auto bg-white/5 backdrop-blur-md rounded-3xl p-8 border border-white/10">
+        <div className="flex items-center gap-3 mb-6">
+          <ImageIcon className="w-8 h-8 text-cyan-400" />
+          <h2 className="text-3xl font-bold">Galerie Collaborative</h2>
+          {isRefreshing && <span className="ml-auto text-xs text-cyan-400 animate-pulse">Actualisation...</span>}
+        </div>
+
+        <div className="flex gap-4 mb-8 border-b border-white/10">
+          <button onClick={() => setActiveTab('mes-diagnostics')} className={`px-6 py-3 font-bold ${activeTab === 'mes-diagnostics' ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400'}`}>
+            Mes Diagnostics ({myDiagnostics.length})
+          </button>
+          <button onClick={() => setActiveTab('disponibles')} className={`px-6 py-3 font-bold ${activeTab === 'disponibles' ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400'}`}>
+            Images Disponibles ({allAvailableGroups.length})
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {(activeTab === 'mes-diagnostics' ? myDiagnostics : allAvailableGroups).map(group => renderImageCard(group, activeTab === 'mes-diagnostics'))}
+>>>>>>> Stashed changes
         </div>
       </div>
     );
@@ -587,6 +808,7 @@ const MesImages = () => {
         )}
       </div>
 
+<<<<<<< Updated upstream
       {showModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-slate-800 border border-cyan-500/30 p-6 rounded-2xl w-full max-w-md shadow-2xl">
@@ -678,6 +900,49 @@ const MesImages = () => {
                 </div>
               </div>
             )}
+=======
+      {/* MODALS REUTILISES - EDIT/ADD */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 border border-white/10 rounded-3xl max-w-md w-full p-8">
+             <div className="flex justify-between mb-6">
+               <h3 className="text-xl font-bold">{step === 1 ? (modalMode === 'edit' ? "Modifier" : "Ajouter") : "Confirmation"}</h3>
+               <button onClick={() => setShowModal(false)}><X/></button>
+             </div>
+             {step === 1 ? (
+               <div className="space-y-4">
+                 <select value={newDiseaseName} onChange={(e) => setNewDiseaseName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3">
+                   {categoryOptions.map(cat => <option key={cat.name} value={cat.name}>{cat.fullName}</option>)}
+                 </select>
+                 <button onClick={() => setStep(2)} className="w-full py-3 bg-cyan-600 rounded-xl font-bold">Suivant</button>
+               </div>
+             ) : (
+               <div className="space-y-4">
+                 <input type="password" placeholder="Mot de passe" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3" />
+                 {error && <p className="text-red-400 text-xs">{error}</p>}
+                 <div className="flex gap-2">
+                   <button onClick={() => setStep(1)} className="flex-1 py-3 bg-slate-700 rounded-xl">Retour</button>
+                   <button onClick={handleConfirm} className="flex-1 py-3 bg-cyan-600 rounded-xl font-bold">Confirmer</button>
+                 </div>
+               </div>
+             )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DELETE */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 border border-red-500/30 rounded-3xl max-w-md w-full p-8 text-center">
+            <AlertCircle className="mx-auto text-red-500 mb-4" size={48} />
+            <h3 className="text-xl font-bold mb-6">Confirmer la suppression ?</h3>
+            <input type="password" placeholder="Mot de passe de confirmation" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 mb-4" />
+            {deleteError && <p className="text-red-400 text-xs mb-4">{deleteError}</p>}
+            <div className="flex gap-3">
+              <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-3 bg-slate-700 rounded-xl font-bold">Annuler</button>
+              <button onClick={handleDeleteConfirm} className="flex-1 py-3 bg-red-600 rounded-xl font-bold">Supprimer</button>
+            </div>
+>>>>>>> Stashed changes
           </div>
         </div>
       )}
