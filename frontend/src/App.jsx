@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Accueil from './pages/Accueil';
@@ -7,7 +7,32 @@ import MesImages from './pages/MesImages';
 
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return Boolean(localStorage.getItem('user'));
+  });
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    setIsAuthenticated(Boolean(storedUser));
+
+    const handleStorage = (event) => {
+      if (event.key === 'user') {
+        setIsAuthenticated(Boolean(event.newValue));
+      }
+    };
+
+    const handleAuthChange = () => {
+      const nextUser = localStorage.getItem('user');
+      setIsAuthenticated(Boolean(nextUser));
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('auth-change', handleAuthChange);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('auth-change', handleAuthChange);
+    };
+  }, []);
 
   // Callback à passer au composant Login
   const handleLogin = () => {

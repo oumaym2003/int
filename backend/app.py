@@ -1,5 +1,9 @@
-from fastapi import FastAPI
-from . import routes
+"""Application entrypoint used by uvicorn.
 
-app = FastAPI()
-app.include_router(routes.router)
+Expose the main FastAPI app (with CORS and full routes) so
+`uvicorn backend.app:app` and `uvicorn backend.main:app` behave the same.
+"""
+
+from .main import app
+
+__all__ = ["app"]

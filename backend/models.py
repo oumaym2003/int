@@ -1,6 +1,9 @@
 from sqlalchemy import Column, Integer, String, DateTime, Date, Text, ForeignKey
 from sqlalchemy.orm import relationship
-from database import Base  # type: ignore[import-not-found]
+try:
+    from .database import Base  # type: ignore[import-not-found]
+except ImportError:
+    from database import Base  # type: ignore[import-not-found]
 import datetime
 
 class Utilisateur(Base):
@@ -25,6 +28,10 @@ class Diagnostic(Base):
 
     utilisateur_id = Column(Integer, ForeignKey("utilisateurs.id"))
     nom_medecin_diagnostiqueur = Column(String(150))
+    nom_medecin_diagnostiqueur_2 = Column(String(150))
+    diagnostique_2 = Column(String(150))
+    type_maladie_2 = Column(String(100))
+    utilisateur_id_2 = Column(Integer)
 
     date_prise_image = Column(Date)
     date_diagnostique = Column(Date)

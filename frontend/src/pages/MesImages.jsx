@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { Edit, Image as ImageIcon, X, Trash2 } from 'lucide-react';
+import GlobalMenu from '../components/GlobalMenu';
 
 const categoryOptions = [
   { name: 'OMA', fullName: 'Otite Moyenne Aiguë', options: ['cong', 'sup', 'perf'] },
@@ -38,9 +39,40 @@ const MesImages = () => {
   const currentUserId = currentUser?.id ? Number(currentUser.id) : null;
 
   // --- LOGIQUE DE REGROUPEMENT UNIQUE ---
+  const expandDiagnostics = useCallback((data) => {
+    if (!Array.isArray(data)) return [];
+    const expanded = [];
+
+    data.forEach((item) => {
+      expanded.push({
+        ...item,
+        medecin: item.medecin,
+        diagnostic_id: item.id,
+        is_second: false
+      });
+
+      if (item.nom_medecin_diagnostiqueur_2 || item.diagnostique_2) {
+        expanded.push({
+          id: `${item.id}-2`,
+          diagnostic_id: item.id,
+          image_hash: item.image_hash,
+          image_url: item.image_url,
+          nom_maladie: item.diagnostique_2,
+          type_maladie: item.type_maladie_2,
+          medecin: item.nom_medecin_diagnostiqueur_2,
+          utilisateur_id: item.utilisateur_id_2,
+          is_second: true
+        });
+      }
+    });
+
+    return expanded;
+  }, []);
+
   const groupData = useCallback((data) => {
     if (!Array.isArray(data)) return [];
-    const groups = data.reduce((acc, current) => {
+    const expanded = expandDiagnostics(data);
+    const groups = expanded.reduce((acc, current) => {
       const hash = current.image_hash;
       if (!acc[hash]) {
         acc[hash] = {
@@ -55,7 +87,7 @@ const MesImages = () => {
       return acc;
     }, {});
     return Object.values(groups);
-  }, []);
+  }, [expandDiagnostics]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -71,7 +103,17 @@ const MesImages = () => {
   }, [fetchData]);
 
   // --- FILTRES INTELLIGENTS ---
-  const avisKey = (avis) => `${avis.nom_maladie?.toLowerCase()}::${avis.type_maladie?.toLowerCase()}`;
+  const normalizeAvisValue = (value) => {
+    if (!value) return '';
+    return String(value).trim().toLowerCase().replace(/\s+/g, ' ');
+  };
+
+  const normalizeTypeValue = (value) => {
+    const normalized = normalizeAvisValue(value);
+    return normalized || 'standard';
+  };
+
+  const avisKey = (avis) => `${normalizeAvisValue(avis.nom_maladie)}::${normalizeTypeValue(avis.type_maladie)}`;
 
   const getAvisStatus = (group) => {
     if (group.avis.length === 1) return 'single';
@@ -103,7 +145,8 @@ const MesImages = () => {
     const isStandard = categoryOptions.some(c => c.name === diagnostic.nom_maladie);
     setNewDiseaseName(isStandard ? diagnostic.nom_maladie : 'Autre');
     setCustomDiseaseName(isStandard ? '' : diagnostic.nom_maladie);
-    setNewDiseaseType(diagnostic.type_maladie || '');
+    const rawType = diagnostic.type_maladie || '';
+    setNewDiseaseType(normalizeTypeValue(rawType) === 'standard' ? '' : rawType);
     setPassword(''); setError(''); setStep(1); setShowModal(true);
   };
 
@@ -113,6 +156,10 @@ const MesImages = () => {
     setNewDiseaseName('OMA'); setCustomDiseaseName(''); setNewDiseaseType('');
     setPassword(''); setError(''); setStep(1); setShowModal(true);
   };
+
+  const selectedCategory = categoryOptions.find(c => c.name === newDiseaseName);
+  const stageOptions = selectedCategory?.options || [];
+  const showStageSelect = stageOptions.length > 0;
 
   const handleConfirm = async () => {
     setError('');
@@ -125,10 +172,11 @@ const MesImages = () => {
       const finalName = newDiseaseName === 'Autre' ? customDiseaseName : newDiseaseName;
 
       if (modalMode === 'edit') {
-        await axios.put(`${API_BASE_URL}/api/diagnostic/${selectedImage.id}`, {
+        await axios.put(`${API_BASE_URL}/api/diagnostic/${selectedImage.diagnostic_id || selectedImage.id}`, {
           nom_maladie: finalName,
           type_maladie: newDiseaseType || 'Standard',
-          utilisateur_id: Number(currentUserId)
+          utilisateur_id: Number(currentUserId),
+          is_second: Boolean(selectedImage.is_second)
         });
       } else {
         const formData = new FormData();
@@ -155,8 +203,8 @@ const MesImages = () => {
         utilisateur_id: Number(currentUserId),
         mot_de_passe: deletePassword.trim()
       });
-      await axios.delete(`${API_BASE_URL}/api/diagnostic/${deleteTarget.id}`, {
-        data: { utilisateur_id: Number(currentUserId) }
+      await axios.delete(`${API_BASE_URL}/api/diagnostic/${deleteTarget.diagnostic_id || deleteTarget.id}`, {
+        data: { utilisateur_id: Number(currentUserId), is_second: Boolean(deleteTarget.is_second) }
       });
       setShowDeleteModal(false);
       setIsRefreshing(true);
@@ -166,6 +214,7 @@ const MesImages = () => {
       setDeleteError("Mot de passe incorrect ou erreur serveur.");
     }
   };
+
 
   // --- RENDU ---
   const renderImageCard = (group) => {
@@ -212,6 +261,7 @@ const MesImages = () => {
 
   return (
     <div className="min-h-screen bg-slate-900 p-6 text-white font-sans selection:bg-cyan-500/30">
+      <GlobalMenu />
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-4">
@@ -253,12 +303,34 @@ const MesImages = () => {
               <div className="space-y-5">
                 <div>
                     <label className="text-[10px] text-slate-400 font-bold uppercase ml-1">Pathologie identifiée</label>
-                    <select value={newDiseaseName} onChange={e => setNewDiseaseName(e.target.value)} className="w-full bg-slate-900 mt-1.5 p-3 rounded-xl border border-white/10 outline-none focus:border-cyan-500/50 transition-all">
+                    <select
+                      value={newDiseaseName}
+                      onChange={e => {
+                        setNewDiseaseName(e.target.value);
+                        setNewDiseaseType('');
+                      }}
+                      className="w-full bg-slate-900 mt-1.5 p-3 rounded-xl border border-white/10 outline-none focus:border-cyan-500/50 transition-all"
+                    >
                     {categoryOptions.map(c => <option key={c.name} value={c.name}>{c.fullName}</option>)}
                     </select>
                 </div>
                 {newDiseaseName === 'Autre' && (
                   <input value={customDiseaseName} onChange={e => setCustomDiseaseName(e.target.value)} placeholder="Précisez la pathologie..." className="w-full bg-slate-900 p-3 rounded-xl border border-white/10 outline-none focus:border-cyan-500/50 transition-all" />
+                )}
+                {showStageSelect && (
+                  <div>
+                    <label className="text-[10px] text-slate-400 font-bold uppercase ml-1">Type / Stade</label>
+                    <select
+                      value={newDiseaseType}
+                      onChange={e => setNewDiseaseType(e.target.value)}
+                      className="w-full bg-slate-900 mt-1.5 p-3 rounded-xl border border-white/10 outline-none focus:border-cyan-500/50 transition-all"
+                    >
+                      <option value="">Type...</option>
+                      {stageOptions.map(option => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
                 )}
                 <button onClick={() => setStep(2)} className="w-full py-3.5 bg-cyan-600 hover:bg-cyan-500 rounded-2xl font-bold mt-2 shadow-lg transition-all">Suivant</button>
               </div>
