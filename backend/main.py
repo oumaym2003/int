@@ -127,19 +127,22 @@ def get_all_diagnostics(db: Session = Depends(get_db)):
     resultat = []
     for d in diagnostics:
         clean_url = d.path_image_final.replace("\\", "/") if d.path_image_final else ""
+        
         resultat.append({
             "id": d.id,
             "nom_maladie": d.nom_maladie,
             "type_maladie": d.type_maladie,
-            "medecin": d.nom_medecin_diagnostiqueur,
+            "nom_medecin_diagnostiqueur": d.nom_medecin_diagnostiqueur,
             "date": d.date_diagnostique,
             "image_url": clean_url,
             "image_hash": d.image_hash,
             "utilisateur_id": d.utilisateur_id,
+            # Données du second médecin
             "nom_medecin_diagnostiqueur_2": d.nom_medecin_diagnostiqueur_2,
             "diagnostique_2": d.diagnostique_2,
             "type_maladie_2": d.type_maladie_2,
-            "utilisateur_id_2": d.utilisateur_id_2
+            "utilisateur_id_2": d.utilisateur_id_2,
+            "path_image_final": clean_url
         })
     return resultat
 

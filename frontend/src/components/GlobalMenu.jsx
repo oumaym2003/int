@@ -47,7 +47,7 @@ const GlobalMenu = () => {
           >
             <span className="inline-flex items-center gap-2">
               <ImageIcon className="w-4 h-4" />
-              Mes images
+              Images diagnostiquées
             </span>
           </button>
         </div>

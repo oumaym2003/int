@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { Upload, Stethoscope, X, ChevronRight, MessageSquarePlus, ChevronLeft } from 'lucide-react';
+import { Upload, Stethoscope, X, ChevronRight } from 'lucide-react';
 import GlobalMenu from '../components/GlobalMenu';
 
 const categoryOptions = [
@@ -24,24 +24,7 @@ export default function Accueil() {
   const [dragActive, setDragActive] = useState(false);
   const navigate = useNavigate();
 
-  const [suggestions, setSuggestions] = useState([]);
-  const [currentCarouselIndex, setCurrentCarouselIndex] = useState(0);
-
   const API_BASE_URL = "http://127.0.0.1:8000";
-  const userData = JSON.parse(localStorage.getItem('user') || '{}');
-
-  // Charger le carousel
-  const fetchCarousel = () => {
-    if (userData.id) {
-      axios.get(`${API_BASE_URL}/api/suggestions-carousel/${userData.id}`)
-        .then(res => setSuggestions(res.data))
-        .catch(err => console.error("Erreur carousel:", err));
-    }
-  };
-
-  useEffect(() => {
-    fetchCarousel();
-  }, [userData.id]);
 
   const handleImageChange = (e) => {
     if (e.target.files && e.target.files[0]) {
@@ -70,77 +53,63 @@ export default function Accueil() {
   };
 
   const handleUpload = async () => {
-  setIsSaving(true);
-  setSaveMessage('');
+    setIsSaving(true);
+    setSaveMessage('');
 
-  const selectedKeys = Object.keys(selections).filter(k => selections[k].checked);
+    const selectedKeys = Object.keys(selections).filter(k => selections[k].checked);
+    const user1 = JSON.parse(localStorage.getItem('user'));
+    const user2 = JSON.parse(localStorage.getItem('collaborateur')); 
+    const isCollabMode = localStorage.getItem('mode_session') === 'collaboration';
 
-  // 1. RÉCUPÉRATION DES DEUX MÉDECINS
-  const user1 = JSON.parse(localStorage.getItem('user'));
-  const user2 = JSON.parse(localStorage.getItem('collaborateur')); // Récupération du 2ème login
-  const isCollabMode = localStorage.getItem('mode_session') === 'collaboration';
-
-  // Vérification de sécurité
-  if (!selectedFile || selectedKeys.length === 0 || !user1?.id) {
-    setSaveMessage("Erreur : Image, pathologie(s) ou connexion manquante.");
-    setIsSaving(false);
-    return;
-  }
-
-  const names = [];
-  const types = [];
-
-  selectedKeys.forEach(key => {
-    const name = key === 'Autre' ? customDiseaseName : key;
-    const type = selections[key].stage || 'Standard';
-    if (name) {
-      names.push(name);
-      types.push(type);
+    if (!selectedFile || selectedKeys.length === 0 || !user1?.id) {
+      setSaveMessage("Erreur : Image, pathologie(s) ou connexion manquante.");
+      setIsSaving(false);
+      return;
     }
-  });
 
-  const finalNames = names.join(' + ');
-  const finalTypes = types.join(' / ');
+    const names = [];
+    const types = [];
 
-  const formData = new FormData();
-  formData.append('file', selectedFile);
-  formData.append('nom_maladie', finalNames); 
-  formData.append('type_maladie', finalTypes); 
-  formData.append('utilisateur_id', user1.id);
-  formData.append('nom_medecin_diagnostiqueur', `${user1.prenom} ${user1.nom}`);
+    selectedKeys.forEach(key => {
+      const name = key === 'Autre' ? customDiseaseName : key;
+      const type = selections[key].stage || 'Standard';
+      if (name) {
+        names.push(name);
+        types.push(type);
+      }
+    });
 
-  // 2. AJOUT DES DONNÉES DU DEUXIÈME MÉDECIN SI MODE COLLAB
-  if (isCollabMode && user2) {
-    formData.append('utilisateur_id_2', user2.id);
-    formData.append('nom_medecin_diagnostiqueur_2', `${user2.prenom} ${user2.nom}`);
-    // On envoie les mêmes diagnostics pour le médecin 2
-    formData.append('diagnostique_2', finalNames);
-    formData.append('type_maladie_2', finalTypes);
-  }
+    const finalNames = names.join(' + ');
+    const finalTypes = types.join(' / ');
 
-  try {
-    const response = await axios.post(`${API_BASE_URL}/api/diagnostic/`, formData);
-    setSaveMessage(`✅ ${response.data.message}`);
-    
-    // Reset formulaire
-    setSelectedImage(null);
-    setSelectedFile(null);
-    setSelections({});
-    setCustomDiseaseName('');
-    
-    // Rafraîchir le carousel
-    fetchCarousel();
-  } catch (e) {
-    setSaveMessage(e.response?.data?.detail || "❌ Erreur serveur.");
-  } finally {
-    setIsSaving(false);
-  }
-};
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    formData.append('nom_maladie', finalNames); 
+    formData.append('type_maladie', finalTypes); 
+    formData.append('utilisateur_id', user1.id);
+    formData.append('nom_medecin_diagnostiqueur', `${user1.prenom} ${user1.nom}`);
 
-  const getFullImageUrl = (path) => {
-    if (!path) return "https://via.placeholder.com/150?text=Pas+d'image";
-    const cleanPath = path.startsWith('/') ? path.substring(1) : path;
-    return `${API_BASE_URL}/${cleanPath}`;
+    if (isCollabMode && user2) {
+      formData.append('utilisateur_id_2', user2.id);
+      formData.append('nom_medecin_diagnostiqueur_2', `${user2.prenom} ${user2.nom}`);
+      formData.append('diagnostique_2', finalNames);
+      formData.append('type_maladie_2', finalTypes);
+    }
+
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/diagnostic/`, formData);
+      setSaveMessage(`✅ ${response.data.message}`);
+      
+      // Reset formulaire
+      setSelectedImage(null);
+      setSelectedFile(null);
+      setSelections({});
+      setCustomDiseaseName('');
+    } catch (e) {
+      setSaveMessage(e.response?.data?.detail || "❌ Erreur serveur.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -149,75 +118,8 @@ export default function Accueil() {
 
       <GlobalMenu />
       
-      {/* SECTION CAROUSEL CORRIGÉE */}
-      {suggestions.length > 0 && (
-        <div className="relative w-full max-w-6xl mb-8 mt-4 bg-white/5 backdrop-blur-md border border-white/10 rounded-3xl p-6 animate-scale-in">
-          <div className="flex items-center gap-3 mb-6">
-            <MessageSquarePlus className="w-6 h-6 text-cyan-400" />
-            <h2 className="text-xl font-bold text-white">Cas nécessitant votre expertise</h2>
-          </div>
-          
-          <div className="relative flex items-center justify-between gap-4">
-            <button 
-              onClick={() => setCurrentCarouselIndex(prev => (prev - 1 + suggestions.length) % suggestions.length)}
-              className="p-3 bg-white/10 rounded-full hover:bg-cyan-500 transition-all"
-            >
-              <ChevronLeft className="text-white" />
-            </button>
-
-            <div className="flex flex-1 items-center justify-center gap-10 bg-black/20 p-6 rounded-2xl">
-              <img 
-                src={encodeURI(getFullImageUrl(suggestions[currentCarouselIndex].image_url || suggestions[currentCarouselIndex].path_image_final))} 
-                className="h-48 rounded-xl border border-white/10 shadow-xl object-cover aspect-video"
-                alt="Cas à expertiser"
-                onError={(e) => { e.target.src = "https://via.placeholder.com/150?text=Erreur+Lien"; }}
-              />
-              <div className="text-left">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-tighter">Avis actuel sur ce cas :</p>
-                <p className="text-xl font-bold text-cyan-400 mt-1">{suggestions[currentCarouselIndex].nom_maladie}</p>
-                
-                <button 
-                  onClick={async () => {
-                    try {
-                      const item = suggestions[currentCarouselIndex];
-                      const path = item.image_url || item.path_image_final;
-                      const url = getFullImageUrl(path);
-                      
-                      const response = await fetch(url);
-                      const blob = await response.blob();
-                      
-                      // ON RÉCUPÈRE LE NOM ORIGINAL DU FICHIER SUR LE SERVEUR
-                      const originalFileName = path.split('/').pop();
-                      const file = new File([blob], originalFileName, { type: "image/jpeg" });
-                      
-                      setSelectedFile(file);
-                      setSelectedImage(URL.createObjectURL(file));
-                      
-                      // Scroll vers le formulaire de diagnostic
-                      window.scrollTo({ top: 550, behavior: 'smooth' });
-                    } catch (err) {
-                      alert("Erreur de récupération de l'image.");
-                    }
-                  }}
-                  className="mt-4 px-6 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-xl text-white text-sm font-bold transition-all"
-                >
-                  Expertiser ce cas
-                </button>
-              </div>
-            </div>
-
-            <button 
-              onClick={() => setCurrentCarouselIndex(prev => (prev + 1) % suggestions.length)}
-              className="p-3 bg-white/10 rounded-full hover:bg-cyan-500 transition-all"
-            >
-              <ChevronRight className="text-white" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* SECTION DIAGNOSTIC */}
-      <div className="relative w-full max-w-6xl bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl shadow-2xl p-8">
+      {/* SECTION DIAGNOSTIC - Centrée maintenant que le carousel est parti */}
+      <div className="relative w-full max-w-6xl bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl shadow-2xl p-8 mt-10">
         <div className="flex justify-between items-center mb-8">
           <div className="flex items-center gap-3">
             <Stethoscope className="w-8 h-8 text-cyan-400" />
@@ -289,7 +191,7 @@ export default function Accueil() {
                 </button>
 
                 {saveMessage && (
-                  <div className={`p-4 rounded-2xl text-xs font-bold text-center ${saveMessage.includes('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                  <div className={`p-4 rounded-2xl text-xs font-bold text-center animate-scale-in ${saveMessage.includes('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
                     {saveMessage}
                   </div>
                 )}
