@@ -197,24 +197,32 @@ const MesImages = () => {
     }
   };
 
-  const handleDeleteConfirm = async () => {
-    try {
-      await axios.post(`${API_BASE_URL}/api/verifier-mdp`, {
-        utilisateur_id: Number(currentUserId),
-        mot_de_passe: deletePassword.trim()
-      });
-      await axios.delete(`${API_BASE_URL}/api/diagnostic/${deleteTarget.diagnostic_id || deleteTarget.id}`, {
-        data: { utilisateur_id: Number(currentUserId), is_second: Boolean(deleteTarget.is_second) }
-      });
-      setShowDeleteModal(false);
-      setIsRefreshing(true);
-      await fetchData();
-      setIsRefreshing(false);
-    } catch (e) {
-      setDeleteError("Mot de passe incorrect ou erreur serveur.");
-    }
-  };
+ const handleDeleteConfirm = async () => {
+  try {
+    // 1. Vérification du mot de passe
+    await axios.post(`${API_BASE_URL}/api/verifier-mdp`, {
+      utilisateur_id: Number(currentUserId),
+      mot_de_passe: deletePassword.trim()
+    });
 
+    // 2. Appel au backend
+    // On passe l'ID du diagnostic et on précise quel utilisateur veut "se retirer"
+    await axios.delete(`${API_BASE_URL}/api/diagnostic/${deleteTarget.diagnostic_id || deleteTarget.id}`, {
+      data: { 
+        utilisateur_id: Number(currentUserId),
+        is_second: Boolean(deleteTarget.is_second) 
+      }
+    });
+
+    setShowDeleteModal(false);
+    setDeletePassword(''); // On vide le mdp
+    setIsRefreshing(true);
+    await fetchData();
+    setIsRefreshing(false);
+  } catch (e) {
+    setDeleteError("Mot de passe incorrect ou erreur lors de la suppression.");
+  }
+};
 
   // --- RENDU ---
   const renderImageCard = (group) => {

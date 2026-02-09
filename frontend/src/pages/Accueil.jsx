@@ -70,55 +70,72 @@ export default function Accueil() {
   };
 
   const handleUpload = async () => {
-    setIsSaving(true);
-    setSaveMessage('');
+  setIsSaving(true);
+  setSaveMessage('');
 
-    const selectedKeys = Object.keys(selections).filter(k => selections[k].checked);
+  const selectedKeys = Object.keys(selections).filter(k => selections[k].checked);
 
-    if (!selectedFile || selectedKeys.length === 0 || !userData.id) {
-      setSaveMessage("Erreur : Image, pathologie(s) ou connexion manquante.");
-      setIsSaving(false);
-      return;
+  // 1. RÉCUPÉRATION DES DEUX MÉDECINS
+  const user1 = JSON.parse(localStorage.getItem('user'));
+  const user2 = JSON.parse(localStorage.getItem('collaborateur')); // Récupération du 2ème login
+  const isCollabMode = localStorage.getItem('mode_session') === 'collaboration';
+
+  // Vérification de sécurité
+  if (!selectedFile || selectedKeys.length === 0 || !user1?.id) {
+    setSaveMessage("Erreur : Image, pathologie(s) ou connexion manquante.");
+    setIsSaving(false);
+    return;
+  }
+
+  const names = [];
+  const types = [];
+
+  selectedKeys.forEach(key => {
+    const name = key === 'Autre' ? customDiseaseName : key;
+    const type = selections[key].stage || 'Standard';
+    if (name) {
+      names.push(name);
+      types.push(type);
     }
+  });
 
-    const names = [];
-    const types = [];
+  const finalNames = names.join(' + ');
+  const finalTypes = types.join(' / ');
 
-    selectedKeys.forEach(key => {
-      const name = key === 'Autre' ? customDiseaseName : key;
-      const type = selections[key].stage || 'Standard';
-      if (name) {
-        names.push(name);
-        types.push(type);
-      }
-    });
+  const formData = new FormData();
+  formData.append('file', selectedFile);
+  formData.append('nom_maladie', finalNames); 
+  formData.append('type_maladie', finalTypes); 
+  formData.append('utilisateur_id', user1.id);
+  formData.append('nom_medecin_diagnostiqueur', `${user1.prenom} ${user1.nom}`);
 
-    const formData = new FormData();
-    // On envoie le fichier (le nom du fichier servira d'identifiant pour le backend)
-    formData.append('file', selectedFile);
-    formData.append('nom_maladie', names.join(' + ')); 
-    formData.append('type_maladie', types.join(' / ')); 
-    formData.append('utilisateur_id', userData.id);
-    formData.append('nom_medecin_diagnostiqueur', `${userData.prenom} ${userData.nom}`);
+  // 2. AJOUT DES DONNÉES DU DEUXIÈME MÉDECIN SI MODE COLLAB
+  if (isCollabMode && user2) {
+    formData.append('utilisateur_id_2', user2.id);
+    formData.append('nom_medecin_diagnostiqueur_2', `${user2.prenom} ${user2.nom}`);
+    // On envoie les mêmes diagnostics pour le médecin 2
+    formData.append('diagnostique_2', finalNames);
+    formData.append('type_maladie_2', finalTypes);
+  }
 
-    try {
-      const response = await axios.post(`${API_BASE_URL}/api/diagnostic/`, formData);
-      setSaveMessage(`✅ ${response.data.message}`);
-      
-      // Reset formulaire
-      setSelectedImage(null);
-      setSelectedFile(null);
-      setSelections({});
-      setCustomDiseaseName('');
-      
-      // Rafraîchir le carousel pour faire disparaître l'image traitée
-      fetchCarousel();
-    } catch (e) {
-      setSaveMessage(e.response?.data?.detail || "❌ Erreur serveur.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  try {
+    const response = await axios.post(`${API_BASE_URL}/api/diagnostic/`, formData);
+    setSaveMessage(`✅ ${response.data.message}`);
+    
+    // Reset formulaire
+    setSelectedImage(null);
+    setSelectedFile(null);
+    setSelections({});
+    setCustomDiseaseName('');
+    
+    // Rafraîchir le carousel
+    fetchCarousel();
+  } catch (e) {
+    setSaveMessage(e.response?.data?.detail || "❌ Erreur serveur.");
+  } finally {
+    setIsSaving(false);
+  }
+};
 
   const getFullImageUrl = (path) => {
     if (!path) return "https://via.placeholder.com/150?text=Pas+d'image";

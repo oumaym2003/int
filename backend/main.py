@@ -173,184 +173,146 @@ def get_user_diagnostics(user_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/diagnostic/")
 async def create_diagnostic(
-    # Le fichier devient optionnel (None) pour permettre l'ajout d'avis par hash
     file: UploadFile = File(None), 
     nom_maladie: str = Form(...),
     type_maladie: str = Form(...),
-    utilisateur_id: int = Form(...),
-    nom_medecin_diagnostiqueur: str = Form(...),
-    nom_medecin_diagnostiqueur_2: str = Form(None),
-    diagnostique_2: str = Form(None),
-    # On ajoute ce champ pour recevoir le hash depuis React
+    utilisateur_id: int = Form(...), # ID du Médecin 1
+    nom_medecin_diagnostiqueur: str = Form(...), # Nom du Médecin 1
+    utilisateur_id_2: int = Form(None), # ID du Médecin 2 (Compte conjoint)
+    nom_medecin_diagnostiqueur_2: str = Form(None), # Nom du Médecin 2
     image_hash_existant: str = Form(None), 
     db: Session = Depends(get_db)
 ):
     try:
+        # 1. Normalisation des données
         nom_maladie = normalize_input_value(nom_maladie)
         type_maladie = normalize_type_input(type_maladie)
-        nom_medecin_diagnostiqueur_2 = normalize_input_value(nom_medecin_diagnostiqueur_2) if nom_medecin_diagnostiqueur_2 else ""
-        diagnostique_2 = normalize_input_value(diagnostique_2) if diagnostique_2 else ""
 
+        # 2. Gestion du Hash de l'image
         sha256_hash = None
         image_bytes = None
-
-        # --- ÉTAPE 1 : RÉCUPÉRATION DU HASH ---
         if image_hash_existant:
-            # Cas ajout d'avis sur une image déjà présente
             sha256_hash = image_hash_existant
         elif file:
-            # Cas nouvelle image uploadée
             image_bytes = await file.read()
             sha256_hash = hashlib.sha256(image_bytes).hexdigest()
         else:
             raise HTTPException(status_code=400, detail="Fichier ou Hash manquant")
 
-        # --- ÉTAPE 2 : VÉRIFICATIONS (DÉJÀ EXPERTISÉ) ---
-        deja_expertise = db.query(models.Diagnostic).filter(
-            models.Diagnostic.image_hash == sha256_hash,
-            models.Diagnostic.utilisateur_id == utilisateur_id
-        ).first()
-
-        if deja_expertise:
-            deja_expertise.nom_maladie = nom_maladie
-            deja_expertise.type_maladie = type_maladie
-            deja_expertise.date_insertion_bdd = datetime.datetime.now()
-            db.commit()
-            return {"status": "success", "message": "Avis mis à jour", "path": deja_expertise.path_image_final}
-
-        # --- ÉTAPE 3 : VÉRIFICATION DU NOMBRE D'AVIS ---
-        avis_existants = db.query(models.Diagnostic).filter(
-            models.Diagnostic.image_hash == sha256_hash
-        ).all()
+        # 3. Gestion des fichiers (Vérifier si l'image existe déjà)
+        avis_existants = db.query(models.Diagnostic).filter(models.Diagnostic.image_hash == sha256_hash).all()
 
         if avis_existants:
-            avis_count = len(avis_existants)
-            if avis_count >= 3:
-                raise HTTPException(status_code=400, detail="Cette image a déjà 3 avis")
-
-            if avis_count == 1:
-                diag = avis_existants[0]
-                if diag.utilisateur_id_2 or diag.nom_medecin_diagnostiqueur_2 or diag.diagnostique_2:
-                    raise HTTPException(status_code=400, detail="Le 2e avis est déjà enregistré")
-
-                diag.utilisateur_id_2 = utilisateur_id
-                diag.nom_medecin_diagnostiqueur_2 = nom_medecin_diagnostiqueur
-                diag.diagnostique_2 = nom_maladie
-                diag.type_maladie_2 = type_maladie
-                diag.date_insertion_bdd = datetime.datetime.now()
-                db.commit()
-                return {"status": "success", "message": "2e avis ajouté", "path": diag.path_image_final}
-
-            if avis_count == 1:
-                diag = avis_existants[0]
-                if diag.nom_medecin_diagnostiqueur_2 or diag.diagnostique_2:
-                    raise HTTPException(status_code=400, detail="Le 2e avis est déjà enregistré")
-
-                diag.nom_medecin_diagnostiqueur_2 = nom_medecin_diagnostiqueur_2 or nom_medecin_diagnostiqueur
-                diag.diagnostique_2 = diagnostique_2 or nom_maladie
-                diag.date_insertion_bdd = datetime.datetime.now()
-                db.commit()
-                return {"status": "success", "message": "2e avis ajouté", "path": diag.path_image_final}
-
-            # Vérification de la validation (2 avis identiques)
-            if avis_count == 2:
-                # Utilise vos fonctions de normalisation existantes
-                keys = {f"{normalize_avis_value(a.nom_maladie)}::{normalize_avis_value(a.type_maladie)}" for a in avis_existants}
-                nouveau_key = f"{normalize_avis_value(nom_maladie)}::{normalize_avis_value(type_maladie)}"
-                if len(keys) == 1 and nouveau_key in keys:
-                    raise HTTPException(status_code=400, detail="Cette image est déjà validée (2 avis identiques)")
-
-        # --- ÉTAPE 4 : GESTION DES FICHIERS ---
-        if avis_existants:
-            # On réutilise les informations de l'image existante
             original_filename = avis_existants[0].nom_image_originale
             nom_renomme_final = avis_existants[0].nom_image_renommee
             path_final_bdd = avis_existants[0].path_image_final
-            message_retour = "Avis ajouté à l'image existante"
         else:
-            # C'est une toute nouvelle image, il faut la sauvegarder physiquement
-            if not image_bytes:
-                 raise HTTPException(status_code=400, detail="Fichier requis pour un nouveau diagnostic")
-            
-            original_filename = file.filename or "uploaded_file"
+            # Nouvelle image : Sauvegarde physique
+            original_filename = file.filename if file else "image.jpg"
             maladie_part = sanitize_part(nom_maladie, "inconnue")
-            type_part = sanitize_part(type_maladie or "standard", "standard")
-            
-            # Compteur pour le renommage
-            compteur_classe = db.query(func.count(func.distinct(models.Diagnostic.image_hash))).scalar() + 1
-            nom_renomme_final = f"{maladie_part}_{type_part}_m{utilisateur_id}_{compteur_classe}.jpg"
+            type_part = sanitize_part(type_maladie, "standard")
+            compteur = db.query(func.count(func.distinct(models.Diagnostic.image_hash))).scalar() + 1
+            nom_renomme_final = f"{maladie_part}_{type_part}_m{utilisateur_id}_{compteur}.jpg"
             path_final_bdd = f"uploads/classes/{nom_renomme_final}"
-
-            # Sauvegarde physique
-            path_physique_original = os.path.join(DIR_ORIGINAUX, f"{sha256_hash[:10]}_{original_filename}")
-            with open(path_physique_original, "wb") as f_orig:
-                f_orig.write(image_bytes)
-
-            path_physique_classe = os.path.join(DIR_CLASSES, nom_renomme_final)
+            
             img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-            img.save(path_physique_classe, "JPEG", quality=90)
-            message_retour = "Nouveau diagnostic enregistré"
+            img.save(os.path.join(DIR_CLASSES, nom_renomme_final), "JPEG", quality=90)
 
-        # --- ÉTAPE 5 : ENREGISTREMENT BDD ---
+        # 4. ENREGISTREMENT DE LA LIGNE UNIQUE (CORRECTION)
+        # On crée l'objet en remplissant DIRECTEMENT les colonnes du médecin 2
         nouveau_diag = models.Diagnostic(
             nom_maladie=nom_maladie,
             type_maladie=type_maladie,
-            nom_medecin_diagnostiqueur=nom_medecin_diagnostiqueur,
             utilisateur_id=utilisateur_id,
-            nom_medecin_diagnostiqueur_2=None,
-            diagnostique_2=None,
-            type_maladie_2=None,
-            utilisateur_id_2=None,
+            nom_medecin_diagnostiqueur=nom_medecin_diagnostiqueur,
+            
+            # --- C'EST ICI QUE VOS COLONNES SE REMPLISSENT ---
+            utilisateur_id_2=utilisateur_id_2, 
+            nom_medecin_diagnostiqueur_2=nom_medecin_diagnostiqueur_2,
+            diagnostique_2=nom_maladie, # Le même diagnostic que le médecin 1
+            type_maladie_2=type_maladie, # Le même type que le médecin 1
+            # -----------------------------------------------
+
+            image_hash=sha256_hash,
             nom_image_originale=original_filename,
             nom_image_renommee=nom_renomme_final,
             path_image_final=path_final_bdd,
-            image_hash=sha256_hash,
             date_diagnostique=datetime.date.today(),
             date_insertion_bdd=datetime.datetime.now()
         )
 
         db.add(nouveau_diag)
         db.commit()
-        return {"status": "success", "message": message_retour, "path": path_final_bdd}
+        return {"status": "success", "message": "Diagnostic conjoint enregistré"}
 
-    except HTTPException as he:
-        raise he
     except Exception as e:
         db.rollback()
-        print(f"Erreur : {str(e)}") # logger.error si vous avez configuré le logger
-        raise HTTPException(status_code=500, detail=f"Erreur serveur: {str(e)}")
-
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @app.put("/api/diagnostic/{diag_id}")
 async def update_diagnostic(diag_id: int, data: dict = Body(...), db: Session = Depends(get_db)):
     diagnostic = db.query(models.Diagnostic).filter(models.Diagnostic.id == diag_id).first()
     if not diagnostic:
         raise HTTPException(status_code=404, detail="Diagnostic non trouvé")
     
-    # Vérification de sécurité (optionnelle selon votre logique originale)
-    is_second = bool(data.get("is_second"))
+    # Vérification de sécurité : l'utilisateur ne peut modifier que SON avis
     user_id = data.get("utilisateur_id")
-    if user_id and not is_second and diagnostic.utilisateur_id != user_id:
-         raise HTTPException(status_code=403, detail="Non autorisé")
-    if user_id and is_second and diagnostic.utilisateur_id_2 != user_id:
-        raise HTTPException(status_code=403, detail="Non autorisé")
+    if user_id and diagnostic.utilisateur_id != int(user_id):
+         raise HTTPException(status_code=403, detail="Non autorisé à modifier cet avis")
 
     try:
-        if is_second:
-            if "nom_maladie" in data:
-                diagnostic.diagnostique_2 = normalize_input_value(data.get("nom_maladie"))
-            if "type_maladie" in data:
-                diagnostic.type_maladie_2 = normalize_type_input(data.get("type_maladie"))
-        else:
-            if "nom_maladie" in data:
-                diagnostic.nom_maladie = normalize_input_value(data.get("nom_maladie"))
-            if "type_maladie" in data:
-                diagnostic.type_maladie = normalize_type_input(data.get("type_maladie"))
+        # 1. Sauvegarder les anciennes valeurs pour comparer
+        old_nom = diagnostic.nom_maladie
+        old_type = diagnostic.type_maladie
+        
+        # 2. Récupérer les nouvelles valeurs normalisées
+        new_nom = normalize_input_value(data.get("nom_maladie", old_nom))
+        new_type = normalize_type_input(data.get("type_maladie", old_type))
+
+        # 3. Si le diagnostic a changé, on renomme le fichier physique
+        if new_nom != old_nom or new_type != old_type:
+            maladie_part = sanitize_part(new_nom, "inconnue")
+            type_part = sanitize_part(new_type or "standard", "standard")
+            
+            # On génère le nouveau nom en gardant le suffixe (le compteur _mX_Y.jpg)
+            # Exemple: OMA_cong_m1_5.jpg -> on change juste le début
+            try:
+                # On récupère la fin du nom (ex: "m1_5.jpg")
+                parts = diagnostic.nom_image_renommee.split('_')
+                suffixe = "_".join(parts[-2:])                
+                nouveau_nom_fichier = f"{maladie_part}_{type_part}_{suffixe}"
+            except:
+                # Backup au cas où le format du nom est imprévu
+                nouveau_nom_fichier = f"{maladie_part}_{type_part}_m{diagnostic.utilisateur_id}_{diagnostic.id}.jpg"
+
+            # Chemins complets
+            old_path = os.path.join(DIR_CLASSES, diagnostic.nom_image_renommee)
+            new_path = os.path.join(DIR_CLASSES, nouveau_nom_fichier)
+
+            # Renommage physique sur le disque
+            if os.path.exists(old_path):
+                os.rename(old_path, new_path)
+            
+            # Mise à jour des noms dans la base de données
+            diagnostic.nom_image_renommee = nouveau_nom_fichier
+            diagnostic.path_image_final = f"uploads/classes/{nouveau_nom_fichier}"
+
+        # 4. Mise à jour des champs de texte
+        diagnostic.nom_maladie = new_nom
+        diagnostic.type_maladie = new_type
+        diagnostic.date_insertion_bdd = datetime.datetime.now()
+
         db.commit()
-        return {"status": "success", "message": "Diagnostic mis à jour"}
+        return {
+            "status": "success", 
+            "message": "Diagnostic et fichier mis à jour",
+            "new_path": diagnostic.path_image_final
+        }
+
     except Exception as e:
         db.rollback()
+        logger.error(f"Erreur lors de la mise à jour : {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.delete("/api/diagnostic/{diag_id}")
 async def delete_diagnostic(diag_id: int, data: dict = Body(...), db: Session = Depends(get_db)):
@@ -361,26 +323,43 @@ async def delete_diagnostic(diag_id: int, data: dict = Body(...), db: Session = 
 
     is_second = bool(data.get("is_second"))
     user_id = data.get("utilisateur_id")
+
+    # Sécurité : vérifier que l'utilisateur possède bien l'avis qu'il veut supprimer
     if not is_second and diagnostic.utilisateur_id != user_id:
-        raise HTTPException(status_code=403, detail="Vous pouvez seulement modifier ou supprimer vos images / contenus")
+        raise HTTPException(status_code=403, detail="Non autorisé")
     if is_second and diagnostic.utilisateur_id_2 != user_id:
-        raise HTTPException(status_code=403, detail="Vous pouvez seulement modifier ou supprimer vos images / contenus")
+        raise HTTPException(status_code=403, detail="Non autorisé")
 
     try:
+        # CAS 1 : C'est le 2ème médecin qui supprime
         if is_second:
             diagnostic.utilisateur_id_2 = None
             diagnostic.nom_medecin_diagnostiqueur_2 = None
             diagnostic.diagnostique_2 = None
             diagnostic.type_maladie_2 = None
             db.commit()
-            return {"status": "success", "message": "2e avis supprimé"}
+            return {"status": "success", "message": "Avis du 2e médecin supprimé"}
 
+        # CAS 2 : C'est le 1er médecin qui supprime
+        # SI un 2ème médecin est présent sur la ligne, on ne supprime pas la ligne !
+        # On vide juste les infos du 1er médecin (mais on garde la ligne pour le 2ème)
+        if diagnostic.utilisateur_id_2 is not None:
+            diagnostic.utilisateur_id = None
+            diagnostic.nom_medecin_diagnostiqueur = None
+            diagnostic.nom_maladie = None
+            diagnostic.type_maladie = None
+            db.commit()
+            return {"status": "success", "message": "Avis du 1er médecin supprimé, la ligne est conservée pour le 2e"}
+
+        # CAS 3 : C'est le seul médecin sur la ligne (ou le dernier restant)
+        # Là, on peut supprimer physiquement l'entrée et le fichier
         image_hash = diagnostic.image_hash
         image_path = diagnostic.path_image_final
 
         db.delete(diagnostic)
         db.commit()
 
+        # Nettoyage du fichier image si plus personne n'utilise ce hash
         if image_hash:
             remaining = db.query(models.Diagnostic).filter(
                 models.Diagnostic.image_hash == image_hash
@@ -391,12 +370,12 @@ async def delete_diagnostic(diag_id: int, data: dict = Body(...), db: Session = 
                 if os.path.exists(file_path):
                     os.remove(file_path)
 
-        return {"status": "success", "message": "Diagnostic supprimé"}
+        return {"status": "success", "message": "Diagnostic et image supprimés"}
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
-
-
+    
 @app.post("/login")
 def login(data: dict, db: Session = Depends(get_db)):
     email = data.get('email', '').strip()
@@ -482,6 +461,7 @@ def get_diagnostics_groupes(db: Session = Depends(get_db)):
                 "diagnostic_id": d.id
             })
     return list(grouped.values())
+
 
 if __name__ == "__main__":
     import uvicorn
