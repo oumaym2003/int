@@ -90,8 +90,18 @@ const MesImages = () => {
 
   const getAvisStatus = (group) => {
     if (group.avis.length < 2) return 'pending';
-    const first = group.avis[0].display_nom;
-    return group.avis.every(a => a.display_nom === first) ? 'validated' : 'divergent';
+
+    const counts = group.avis.reduce((acc, avis) => {
+      const key = avis.display_nom || '';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+
+    const maxCount = Math.max(...Object.values(counts));
+    if (group.avis.length === 2) {
+      return maxCount === 2 ? 'validated' : 'divergent';
+    }
+    return maxCount >= 2 ? 'validated' : 'divergent';
   };
 
   const myGroups = allDataGrouped.filter(g => g.avis.some(a => Number(a.utilisateur_id) === currentUserId));
@@ -165,7 +175,7 @@ const MesImages = () => {
           {(activeTab === 'mes-diagnostics' ? myGroups : availableGroups).map(group => {
             const status = getAvisStatus(group);
             return (
-              <div key={group.image_hash} className={`relative bg-slate-800 rounded-[2.5rem] overflow-hidden border transition-all ${status === 'validated' ? 'border-purple-500/50 shadow-[0_0_30px_rgba(168,85,247,0.15)]' : 'border-white/5'}`}>
+              <div key={group.image_hash} className={`relative bg-slate-800 rounded-[2.5rem] overflow-hidden border transition-all ${status === 'validated' ? 'border-purple-500/50 shadow-[0_0_30px_rgba(168,85,247,0.15)]' : status === 'divergent' ? 'border-red-500/40 shadow-[0_0_30px_rgba(239,68,68,0.15)]' : 'border-white/5'}`}>
                 
                 <div className="relative h-56">
                   <img src={`${API_BASE_URL}/${group.image_url}`} className="w-full h-full object-cover" alt="Tympan" />
@@ -180,6 +190,14 @@ const MesImages = () => {
                     <div className="absolute top-4 right-4 bg-purple-600 px-4 py-2 rounded-full flex items-center gap-2 shadow-2xl">
                       <CheckCircle size={14} className="text-white" />
                       <span className="text-[10px] font-black uppercase text-white">Validé</span>
+                    </div>
+                  )}
+
+                  {/* BADGE ROUGE NON VALIDÉ (3E AVIS) */}
+                  {status === 'divergent' && (
+                    <div className="absolute top-4 right-4 bg-red-600 px-4 py-2 rounded-full flex items-center gap-2 shadow-2xl">
+                      <X size={14} className="text-white" />
+                      <span className="text-[10px] font-black uppercase text-white">Non validé (vérifier)</span>
                     </div>
                   )}
                 </div>

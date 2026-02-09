@@ -206,6 +206,12 @@ async def create_diagnostic(
         avis_existants = db.query(models.Diagnostic).filter(models.Diagnostic.image_hash == sha256_hash).all()
 
         if avis_existants:
+            # Refuser si l'utilisateur a deja insere cette image
+            if any(
+                (a.utilisateur_id == utilisateur_id) or (a.utilisateur_id_2 == utilisateur_id)
+                for a in avis_existants
+            ):
+                raise HTTPException(status_code=409, detail="Image deja inseree")
             original_filename = avis_existants[0].nom_image_originale
             nom_renomme_final = avis_existants[0].nom_image_renommee
             path_final_bdd = avis_existants[0].path_image_final
