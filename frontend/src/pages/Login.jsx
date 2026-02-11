@@ -1,24 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Lock, ArrowRight, Stethoscope, Activity, Users } from 'lucide-react';
-import axios from 'axios';
+import { User, Lock, ArrowRight, Stethoscope } from 'lucide-react';
+import { supabase } from '../supabaseClient'; 
 
 export default function Login({ onLogin, isAuthenticated }) {
   const navigate = useNavigate();
-  
-  // États pour le mode collaboration
-  const [isCollabMode, setIsCollabMode] = useState(false);
-  
-  const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-    email2: '',    // Email du 2ème médecin
-    password2: ''  // Password du 2ème médecin
-  });
-  
-  const [showPassword, setShowPassword] = useState(false);
+  const [formData, setFormData] = useState({ email: '', password: '' });
 
-  React.useEffect(() => {
+  // Redirection dès que l'état change
+  useEffect(() => {
     if (isAuthenticated) {
       navigate('/diagnostic');
     }
@@ -26,196 +16,57 @@ export default function Login({ onLogin, isAuthenticated }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     try {
-      // 1. Connexion du premier médecin
-      const response1 = await axios.post('http://127.0.0.1:8000/login', {
-        email: formData.email,
-        mot_de_passe: formData.password
-      });
+      const { data, error } = await supabase
+        .from('utilisateurs')
+        .select('*')
+        .eq('email', formData.email)
+        .single();
 
-      if (response1.data) {
-        // On stocke le médecin principal
-        localStorage.setItem('user', JSON.stringify(response1.data));
-        
-        // 2. Si mode collaboration, connexion du deuxième médecin
-        if (isCollabMode) {
-          try {
-            const response2 = await axios.post('http://127.0.0.1:8000/login', {
-              email: formData.email2,
-              mot_de_passe: formData.password2
-            });
-            
-            if (response2.data) {
-              // ON SAUVEGARDE LE DEUXIÈME MÉDECIN (ID et Nom complet)
-              localStorage.setItem('collaborateur', JSON.stringify(response2.data));
-              localStorage.setItem('mode_session', 'collaboration');
-            }
-          } catch (err) {
-            // Si le 2ème médecin échoue, on annule tout pour rester cohérent
-            localStorage.removeItem('user');
-            alert("Erreur pour le 2ème médecin : " + (err.response?.data?.detail || "Identifiants invalides"));
-            return; 
-          }
-        } else {
-          // Si mode solo : on nettoie les anciennes traces
-          localStorage.removeItem('collaborateur');
-          localStorage.setItem('mode_session', 'solo');
-        }
+      if (error || !data) throw new Error("Compte inconnu.");
+      if (data.mot_de_passe !== formData.password) throw new Error("Mot de passe faux.");
 
-        if (onLogin) onLogin();
-        navigate('/diagnostic');
-      }
-    } catch (error) {
-      alert("Erreur : " + (error.response?.data?.detail || "Connexion refusée"));
+      // On enregistre dans le navigateur
+      localStorage.setItem('user', JSON.stringify(data));
+      
+      // On prévient l'application
+      if (onLogin) onLogin();
+      
+      // Navigation après connexion réussie
+      navigate('/diagnostic');
+
+    } catch (err) {
+      alert(err.message);
     }
   };
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
   return (
-    <div className="min-h-screen flex relative overflow-hidden">
-      <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 animate-gradient"></div>
-      
-      {/* Section Gauche */}
-      <div className="hidden lg:flex lg:flex-1 relative items-center justify-center p-12">
-        <div className="relative z-10 text-center space-y-6 animate-float-card">
-          <div className="flex justify-center mb-8">
-            <div className="relative">
-              <div className="absolute inset-0 bg-cyan-400 blur-3xl opacity-30 rounded-full"></div>
-              <div className="relative bg-white/10 backdrop-blur-xl border border-white/20 rounded-full p-12 shadow-2xl">
-                <Stethoscope className="w-32 h-32 text-cyan-400" strokeWidth={1.5} />
-              </div>
-            </div>
-          </div>
-          <div className="space-y-4">
-            <h1 className="text-5xl font-bold text-white leading-tight">Diagnostic ORL</h1>
-            <div className="flex items-center justify-center gap-2 text-cyan-300">
-              <Activity className="w-5 h-5" />
-              <p className="text-xl font-light">Système Expert de Diagnostic</p>
-            </div>
-          </div>
+    <div className="min-h-screen flex items-center justify-center bg-slate-900">
+      <div className="w-full max-w-md bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl p-8 shadow-2xl">
+        <div className="text-center mb-6">
+          <Stethoscope className="w-16 h-16 text-cyan-400 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-white">Diagnostic ORL</h2>
         </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <input
+            type="email"
+            placeholder="Email"
+            className="w-full bg-white/5 border border-white/20 rounded-xl px-4 py-3 text-white outline-none"
+            onChange={(e) => setFormData({...formData, email: e.target.value})}
+            required
+          />
+          <input
+            type="password"
+            placeholder="Mot de passe"
+            className="w-full bg-white/5 border border-white/20 rounded-xl px-4 py-3 text-white outline-none"
+            onChange={(e) => setFormData({...formData, password: e.target.value})}
+            required
+          />
+          <button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-all">
+            Lancer la session <ArrowRight size={18} />
+          </button>
+        </form>
       </div>
-
-      {/* Section Droite - Formulaire */}
-      <div className="flex-1 flex items-center justify-center p-6 lg:p-12 relative z-10">
-        <div className="w-full max-w-md">
-          <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl shadow-2xl p-8 lg:p-10 relative">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-400 via-blue-500 to-cyan-400 rounded-t-3xl"></div>
-
-            <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold text-white mb-2">
-                {isCollabMode ? "Session Collaborative" : "Connexion"}
-              </h2>
-              
-              <button 
-                type="button"
-                onClick={() => setIsCollabMode(!isCollabMode)}
-                className={`mt-2 inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold transition-all ${isCollabMode ? 'bg-cyan-500 text-white' : 'bg-white/5 text-cyan-400 border border-cyan-400/30'}`}
-              >
-                <Users size={14} />
-                {isCollabMode ? "Mode Duo Activé" : "Travailler à deux ?"}
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              
-              {/* MÉDECIN 1 */}
-              <div className={`space-y-4 ${isCollabMode ? 'p-4 bg-white/5 rounded-2xl border border-white/10' : ''}`}>
-                {isCollabMode && <p className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest">Médecin Principal</p>}
-                <div className="relative group">
-                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-cyan-400" />
-                  <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    className="w-full bg-white/5 border border-white/20 rounded-xl pl-12 pr-4 py-3 text-white text-sm focus:border-cyan-400 outline-none"
-                    placeholder="Email médecin 1"
-                    required
-                  />
-                </div>
-                <div className="relative group">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-cyan-400" />
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    name="password"
-                    value={formData.password}
-                    onChange={handleChange}
-                    className="w-full bg-white/5 border border-white/20 rounded-xl pl-12 pr-4 py-3 text-white text-sm focus:border-cyan-400 outline-none"
-                    placeholder="Mot de passe"
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* MÉDECIN 2 */}
-              {isCollabMode && (
-                <div className="space-y-4 p-4 bg-cyan-500/5 rounded-2xl border border-cyan-500/20 animate-in fade-in slide-in-from-top-2">
-                  <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Médecin Collaborateur</p>
-                  <div className="relative group">
-                    <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-400" />
-                    <input
-                      type="email"
-                      name="email2"
-                      value={formData.email2}
-                      onChange={handleChange}
-                      className="w-full bg-white/5 border border-white/20 rounded-xl pl-12 pr-4 py-3 text-white text-sm focus:border-blue-400 outline-none"
-                      placeholder="Email médecin 2"
-                      required={isCollabMode}
-                    />
-                  </div>
-                  <div className="relative group">
-                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-400" />
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      name="password2"
-                      value={formData.password2}
-                      onChange={handleChange}
-                      className="w-full bg-white/5 border border-white/20 rounded-xl pl-12 pr-4 py-3 text-white text-sm focus:border-blue-400 outline-none"
-                      placeholder="Mot de passe"
-                      required={isCollabMode}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold py-4 rounded-xl shadow-lg hover:shadow-cyan-500/40 transition-all flex items-center justify-center gap-2"
-              >
-                Lancer la session {isCollabMode ? "Duo" : ""}
-                <ArrowRight size={18} />
-              </button>
-            </form>
-          </div>
-        </div>
-      </div> 
-        <style>{`
-        @keyframes gradient {
-          0%, 100% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-        }
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-20px); }
-        }
-        @keyframes float-delayed {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-15px); }
-        }
-        @keyframes float-card {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-8px); }
-        }
-        .animate-gradient { animation: gradient 15s ease infinite; background-size: 400% 400%; }
-        .animate-float { animation: float 6s ease-in-out infinite; }
-        .animate-float-delayed { animation: float-delayed 8s ease-in-out infinite; }
-        .animate-float-card { animation: float-card 6s ease-in-out infinite; }
-      `}</style>
     </div>
   );
 }

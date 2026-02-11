@@ -12,9 +12,6 @@ function App() {
   });
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    setIsAuthenticated(Boolean(storedUser));
-
     const handleStorage = (event) => {
       if (event.key === 'user') {
         setIsAuthenticated(Boolean(event.newValue));
