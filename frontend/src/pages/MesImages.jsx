@@ -110,6 +110,29 @@ const MesImages = () => {
     return !error && data?.mot_de_passe === pwd;
   };
 
+  const resetModalState = () => {
+    setPassword('');
+    setError('');
+    setStep(1);
+  };
+
+  const handleEditClick = (avi) => {
+    setSelectedImage(avi);
+    setSelectedGroup(null);
+    setModalMode('edit');
+    setNewDiseaseName(avi.maladie_nom || 'OMA');
+    setNewDiseaseType(avi.stade_nom || 'Standard');
+    resetModalState();
+    setShowModal(true);
+  };
+
+  const handleDeleteClick = (avi) => {
+    setDeleteTarget(avi);
+    setDeletePassword('');
+    setDeleteError('');
+    setShowDeleteModal(true);
+  };
+
   const handleConfirmAction = async () => {
     setError("");
     const isValid = await verifyPassword(password.trim());
