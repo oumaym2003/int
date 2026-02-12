@@ -30,6 +30,7 @@ export default function Accueil() {
     }
   }, []); 
 
+  // Nettoyage des URLs mémoires pour éviter les fuites
   useEffect(() => {
     return () => fileQueue.forEach(item => URL.revokeObjectURL(item.preview));
   }, [fileQueue]);
@@ -39,7 +40,11 @@ export default function Accueil() {
     const imageFiles = files.filter(file => file.type.startsWith('image/'));
     if (imageFiles.length > 0) {
       const queue = imageFiles.map((file, index) => ({
-        id: index, file, preview: URL.createObjectURL(file), status: 'pending', name: file.name
+        id: index, 
+        file, 
+        preview: URL.createObjectURL(file), 
+        status: 'pending', 
+        name: file.name
       }));
       setFileQueue(queue);
       setCurrentIndex(0);
@@ -48,132 +53,113 @@ export default function Accueil() {
     }
   };
 
-  // Fonction pour calculer le hash SHA256 d'un fichier
   const calculateHash = async (file) => {
-    const subtle = window.crypto && window.crypto.subtle;
-    if (!subtle) {
-      // Fallback non-crypto pour eviter une erreur en contexte non-secure
-      const raw = `fallback_${file.name}_${file.size}_${file.lastModified}`;
-      let hash = 0;
-      for (let i = 0; i < raw.length; i += 1) {
-        hash = ((hash << 5) - hash + raw.charCodeAt(i)) >>> 0;
-      }
-      const hex = hash.toString(16).padStart(8, '0');
-      return hex.repeat(8).slice(0, 64);
-    }
     const buffer = await file.arrayBuffer();
-    const hashBuffer = await subtle.digest('SHA-256', buffer);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   };
 
-  // Fonction pour sanitizer les noms
   const sanitizePart = (value, fallback) => {
     if (!value) return fallback;
     return value.trim().toLowerCase()
       .replace(/\s+/g, '_')
       .replace(/\+/g, 'plus')
-      .replace(/[/\\:]/g, '-')
       .replace(/[^a-z0-9_-]/g, '') || fallback;
   };
 
   const handleUpload = async () => {
-    if (!selectedFile || Object.keys(selections).length === 0 || !currentUser) return;
-    setIsSaving(true);
-    setSaveMessage('⏳ Calcul hash image...');
+    if (!selectedFile || Object.keys(selections).length === 0 || !currentUser) {
+      setSaveMessage("⚠️ Sélectionner une pathologie");
+      return;
+    }
     
-    const selectedKeys = Object.keys(selections);
-    const nomMaladie = selectedKeys.join(' + ');
-    const stadeNom = selectedKeys.map(k => selections[k].stage || 'Aucun').join(' / ');
+    setIsSaving(true);
+    setSaveMessage('⏳ Préparation...');
 
     try {
-      // 1. Calculer le hash de l'image pour éviter les doublons
+      // 1. Hash pour unicité
       const imageHash = await calculateHash(selectedFile);
       
-      // 2. Vérifier si l'image existe déjà pour cet utilisateur
-      const { data: existingDiag } = await supabase
+      // 2. Vérifier si cet utilisateur a déjà envoyé cette image exacte
+      const { data: existing } = await supabase
         .from('categories_diagnostics')
-        .select('*')
+        .select('id')
         .eq('image_hash', imageHash)
-        .eq('utilisateur_id', currentUser.id);
+        .eq('utilisateur_id', currentUser.id)
+        .maybeSingle();
 
-      if (existingDiag && existingDiag.length > 0) {
-        setSaveMessage('⚠️ Image déjà enregistrée !');
+      if (existing) {
+        setSaveMessage('⚠️ Vous avez déjà enregistré cette image.');
+        setIsSaving(false);
         return;
       }
 
-      setSaveMessage('⏳ Comptage des diagnostics...');
+      // 3. Préparer les données
+      const selectedKeys = Object.keys(selections);
+      const nomMaladie = selectedKeys.join(' + ');
+      const stadeNom = selectedKeys.map(k => selections[k].stage || 'Aucun').join(' / ');
+      const maladiePart = sanitizePart(selectedKeys[0], 'inconnue'); // Pour le dossier principal
+      
+      const fileExt = selectedFile.name.split('.').pop();
+      const timestamp = Date.now();
+      const newFileName = `${maladiePart}_m${currentUser.id}_${timestamp}.${fileExt}`;
+      const storagePath = `utilisateur_${currentUser.id}/${maladiePart}/${newFileName}`;
 
-      // 3. Compter les images existantes pour générer l'ID unique
-      const { count } = await supabase
-        .from('categories_diagnostics')
-        .select('*', { count: 'exact', head: true });
+      setSaveMessage('🚀 Upload image...');
 
-      const compteur = (count || 0) + 1;
-
-      // 4. Générer le nom de fichier selon le format: maladie_type_m{userId}_{count}.jpg
-      const maladiePart = sanitizePart(nomMaladie, 'inconnue');
-      const typePart = sanitizePart(stadeNom, 'standard');
-      const newFileName = `${maladiePart}_${typePart}_m${currentUser.id}_${compteur}.jpg`;
-
-      // 5. Organiser par dossiers: utilisateur_{id}/classe_{maladie}/
-      const storagePath = `utilisateur_${currentUser.id}/classe_${maladiePart}/${newFileName}`;
-
-      setSaveMessage('⏳ Upload en cours...');
-
-      // 6. Upload vers le Storage avec structure organisée
+      // 4. Upload vers le Storage (Assurez-vous que le bucket 'images' est PUBLIC)
       const { error: uploadError } = await supabase.storage
-        .from('diagnostics-images')
-        .upload(storagePath, selectedFile, {
-          cacheControl: '3600',
-          upsert: false
-        });
+        .from('images')
+        .upload(storagePath, selectedFile);
 
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage
-        .from('diagnostics-images')
+      // 5. Récupérer l'URL publique
+      const { data: { publicUrl } } = supabase.storage
+        .from('images')
         .getPublicUrl(storagePath);
 
-      setSaveMessage('⏳ Enregistrement en base...');
+      setSaveMessage('💾 Enregistrement BDD...');
 
-      // 7. Insertion complète dans la table avec toutes les métadonnées
+      // 6. Insertion Database
       const { error: dbError } = await supabase
         .from('categories_diagnostics')
         .insert([{
           maladie_nom: nomMaladie,
           stade_nom: stadeNom,
-          image_url: urlData.publicUrl,
+          image_url: publicUrl,
           image_hash: imageHash,
           nom_image_originale: selectedFile.name,
           nom_image_renommee: newFileName,
           path_image_final: storagePath,
           utilisateur_id: currentUser.id,
           nom_medecin_diagnostiqueur: `${currentUser.prenom} ${currentUser.nom}`,
-          date_diagnostique: new Date().toISOString().split('T')[0],
-          date_insertion_bdd: new Date().toISOString()
+          date_diagnostique: new Date().toISOString().split('T')[0]
         }]);
 
       if (dbError) throw dbError;
 
-      // Update UI
+      // 7. Mise à jour UI
       const updatedQueue = [...fileQueue];
       updatedQueue[currentIndex].status = 'uploaded';
       setFileQueue(updatedQueue);
 
+      // Passage automatique à la suivante
       if (currentIndex < fileQueue.length - 1) {
         const next = currentIndex + 1;
         setCurrentIndex(next);
         setSelectedFile(fileQueue[next].file);
         setSelectedImage(fileQueue[next].preview);
         setSelections({});
-        setSaveMessage('✅ Enregistré ! Image suivante...');
+        setSaveMessage('✅ Enregistré ! Suivante...');
       } else {
-        setSaveMessage("✅ Tous les diagnostics terminés !");
+        setSaveMessage("🎉 Terminé ! Toutes les images sont traitées.");
       }
-    } catch (e) {
-      console.error('Erreur:', e);
-      setSaveMessage(`❌ Erreur : ${e.message}`);
+
+    } catch (err) {
+      console.error(err);
+      setSaveMessage(`❌ Erreur: ${err.message}`);
     } finally {
       setIsSaving(false);
     }
@@ -182,31 +168,48 @@ export default function Accueil() {
   return (
     <div className="min-h-screen flex flex-col bg-[#0f172a] text-white">
       <GlobalMenu />
-      <div className="flex flex-1 p-6 gap-6 mt-14 overflow-hidden">
+      
+      <div className="flex flex-1 p-6 gap-6 mt-14 overflow-hidden h-[calc(100vh-60px)]">
         
         {/* GALERIE GAUCHE */}
         <div className="w-80 bg-slate-800/50 rounded-3xl border border-white/10 p-4 flex flex-col gap-4 shadow-2xl">
-          <div className="flex items-center gap-2 border-b border-white/10 pb-3">
-            <ImageIcon size={18} className="text-cyan-400" />
-            <h2 className="text-xs font-bold uppercase tracking-widest">Images Patient</h2>
+          <div className="flex items-center justify-between border-b border-white/10 pb-3">
+            <div className="flex items-center gap-2">
+              <ImageIcon size={18} className="text-cyan-400" />
+              <h2 className="text-xs font-bold uppercase tracking-widest">File d'attente</h2>
+            </div>
+            <span className="text-[10px] bg-slate-700 px-2 py-1 rounded-full">{fileQueue.length}</span>
           </div>
+          
           <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+            {fileQueue.length === 0 && (
+              <div className="text-center py-10 opacity-20">
+                <Upload size={40} className="mx-auto mb-2" />
+                <p className="text-[10px] uppercase font-bold">Aucun dossier chargé</p>
+              </div>
+            )}
             {fileQueue.map((item, idx) => (
-              <div key={idx} onClick={() => {
-                setCurrentIndex(idx);
-                setSelectedFile(item.file);
-                setSelectedImage(item.preview);
-                setSaveMessage('');
-              }} className={`relative cursor-pointer rounded-xl overflow-hidden border-2 transition-all ${currentIndex === idx ? 'border-cyan-400' : 'border-transparent opacity-60'}`}>
+              <div 
+                key={idx} 
+                onClick={() => {
+                  if (!isSaving) {
+                    setCurrentIndex(idx);
+                    setSelectedFile(item.file);
+                    setSelectedImage(item.preview);
+                    setSaveMessage('');
+                  }
+                }} 
+                className={`relative cursor-pointer rounded-2xl overflow-hidden border-2 transition-all duration-300 group ${currentIndex === idx ? 'border-cyan-400 scale-[1.02] shadow-lg shadow-cyan-500/20' : 'border-transparent opacity-50 hover:opacity-100'}`}
+              >
                 <img src={item.preview} alt="mini" className="w-full h-24 object-cover" />
-                {item.status === 'pending' && (
-                  <div className="absolute top-2 left-2 bg-red-600 w-3 h-3 rounded-full animate-pulse flex items-center justify-center">
-                    <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
+                {item.status === 'uploaded' && (
+                  <div className="absolute inset-0 bg-green-500/60 backdrop-blur-[2px] flex items-center justify-center">
+                    <CheckCircle2 size={30} className="text-white drop-shadow-md" />
                   </div>
                 )}
-                {item.status === 'uploaded' && (
-                  <div className="absolute inset-0 bg-green-500/40 flex items-center justify-center"><CheckCircle2 size={24} className="text-white" /></div>
-                )}
+                <div className="absolute bottom-0 inset-x-0 bg-black/60 p-1 text-[8px] truncate px-2 font-mono">
+                  {item.name}
+                </div>
               </div>
             ))}
           </div>
@@ -214,55 +217,109 @@ export default function Accueil() {
 
         {/* ZONE CENTRALE */}
         <div className="flex-1 flex gap-6">
-          <div className="w-1/2 bg-slate-800/30 rounded-3xl p-6 border border-white/10 overflow-y-auto h-[calc(100vh-120px)] custom-scrollbar">
-            <h3 className="text-[10px] font-black text-slate-400 uppercase mb-6 tracking-widest">Diagnostic à poser</h3>
+          {/* SÉLECTION PATHOLOGIE */}
+          <div className="w-[400px] bg-slate-800/30 rounded-3xl p-6 border border-white/10 overflow-y-auto custom-scrollbar shadow-inner">
+            <h3 className="text-[10px] font-black text-slate-500 uppercase mb-6 tracking-widest flex items-center gap-2">
+              <Activity size={14} /> Diagnostic Médical
+            </h3>
+            
             <div className="space-y-3">
               {categoryOptions.map((cat, idx) => (
-                <div key={idx} className={`p-4 border rounded-2xl transition-all ${selections[cat.name] ? 'border-cyan-400 bg-cyan-400/10' : 'border-white/5 bg-white/5'}`}>
+                <div key={idx} className={`group p-4 border rounded-2xl transition-all cursor-pointer ${selections[cat.name] ? 'border-cyan-400 bg-cyan-400/10 shadow-lg shadow-cyan-500/5' : 'border-white/5 bg-white/5 hover:border-white/20'}`}>
                   <div className="flex items-center gap-4">
-                    <span className="text-xl">{cat.icon}</span>
-                    <div className="flex-1 text-sm font-bold">{cat.name}</div>
-                    {selections[cat.name] && cat.options[0] !== 'Aucun' && (
+                    <span className="text-xl group-hover:scale-110 transition-transform">{cat.icon}</span>
+                    <div className="flex-1">
+                      <div className="text-xs font-bold text-white">{cat.name}</div>
+                      <div className="text-[9px] text-slate-400 font-medium uppercase tracking-tighter">{cat.fullName}</div>
+                    </div>
+                    
+                    <input 
+                      type="checkbox" 
+                      className="w-5 h-5 accent-cyan-400 cursor-pointer" 
+                      checked={!!selections[cat.name]} 
+                      onChange={(e) => {
+                        const newSels = {...selections};
+                        if(e.target.checked) newSels[cat.name] = {stage: 'Aucun'};
+                        else delete newSels[cat.name];
+                        setSelections(newSels);
+                      }} 
+                    />
+                  </div>
+
+                  {/* Options de stade si coché */}
+                  {selections[cat.name] && cat.options[0] !== 'Aucun' && (
+                    <div className="mt-3 pt-3 border-t border-cyan-400/20 grid grid-cols-1 gap-2 animate-in fade-in slide-in-from-top-1">
                       <select 
-                        className="bg-slate-900 text-[10px] p-2 rounded-lg border border-cyan-500/50 outline-none"
+                        className="bg-slate-900 text-[10px] font-bold p-3 rounded-xl border border-cyan-500/30 outline-none w-full appearance-none"
+                        value={selections[cat.name].stage}
                         onChange={(e) => setSelections({...selections, [cat.name]: {stage: e.target.value}})}
                       >
-                        <option value="Aucun">Stade...</option>
+                        <option value="Aucun">Sélectionner un stade...</option>
                         {cat.options.map(o => <option key={o} value={o}>{o}</option>)}
                       </select>
-                    )}
-                    <input type="checkbox" className="w-5 h-5 accent-cyan-400" checked={!!selections[cat.name]} onChange={(e) => {
-                      const newSels = {...selections};
-                      if(e.target.checked) newSels[cat.name] = {stage: 'Aucun'};
-                      else delete newSels[cat.name];
-                      setSelections(newSels);
-                    }} />
-                  </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="w-1/2 flex flex-col gap-4">
-            <div className="flex-1 bg-slate-800/20 border-2 border-dashed border-white/10 rounded-3xl flex items-center justify-center relative">
+          {/* APERÇU ET ACTIONS */}
+          <div className="flex-1 flex flex-col gap-4">
+            <div className="flex-1 bg-slate-900/50 border-2 border-dashed border-white/5 rounded-[2.5rem] flex items-center justify-center relative overflow-hidden group shadow-2xl">
               {!selectedImage ? (
-                <label className="cursor-pointer flex flex-col items-center">
-                  <Upload className="text-cyan-400 mb-4" size={32} />
-                  <p className="font-bold uppercase text-xs">Charger le Dossier</p>
+                <label className="cursor-pointer flex flex-col items-center group">
+                  <div className="w-20 h-20 rounded-full bg-cyan-500/10 flex items-center justify-center mb-4 group-hover:bg-cyan-500/20 transition-all">
+                    <Upload className="text-cyan-400" size={32} />
+                  </div>
+                  <p className="font-black uppercase text-[10px] tracking-widest text-slate-400">Charger un dossier patient</p>
+                  <p className="text-[9px] text-slate-600 mt-2 font-bold italic">Glissez-déposez ou cliquez ici</p>
                   <input type="file" className="hidden" webkitdirectory="true" directory="true" multiple onChange={handleFolderChange} />
                 </label>
               ) : (
-                <img src={selectedImage} className="max-h-full rounded-2xl object-contain p-4" alt="Vue" />
+                <>
+                  <img src={selectedImage} className="max-h-full max-w-full object-contain transition-transform duration-500 group-hover:scale-[1.02]" alt="Vue" />
+                  <div className="absolute top-6 left-6 bg-black/50 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
+                    <p className="text-[10px] font-mono text-cyan-400">{selectedFile?.name}</p>
+                  </div>
+                </>
               )}
             </div>
-            <button onClick={handleUpload} disabled={isSaving || !selectedFile || Object.keys(selections).length === 0} className="w-full py-5 bg-cyan-600 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-cyan-400 text-white disabled:opacity-30">
-              {isSaving ? <Activity className="animate-spin" /> : 'Valider et Enregistrer'}
-            </button>
-            <p className="text-center text-[10px] text-cyan-400 font-bold">{saveMessage}</p>
+
+            <div className="space-y-4">
+              <button 
+                onClick={handleUpload} 
+                disabled={isSaving || !selectedFile || Object.keys(selections).length === 0} 
+                className={`w-full py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-3 shadow-xl ${isSaving ? 'bg-slate-700 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-500 hover:shadow-cyan-500/20 active:scale-[0.98]'}`}
+              >
+                {isSaving ? (
+                  <>
+                    <Activity className="animate-spin" size={18} />
+                    Traitement en cours...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={18} />
+                    Valider le Diagnostic
+                  </>
+                )}
+              </button>
+              
+              {saveMessage && (
+                <div className={`p-4 rounded-2xl text-center text-[10px] font-black uppercase tracking-widest animate-in zoom-in-95 ${saveMessage.includes('❌') ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'}`}>
+                  {saveMessage}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
-      <style>{`.custom-scrollbar::-webkit-scrollbar { width: 4px; } .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }`}</style>
+
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; } 
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+        input[type="checkbox"] { border-radius: 6px; }
+      `}</style>
     </div>
   );
 }
