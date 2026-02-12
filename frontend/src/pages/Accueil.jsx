@@ -22,11 +22,19 @@ export default function Accueil() {
   const [saveMessage, setSaveMessage] = useState('');
   const [selections, setSelections] = useState({});
   const [currentUser, setCurrentUser] = useState(null);
+  const [collaborator, setCollaborator] = useState(null);
+  const [sessionMode, setSessionMode] = useState('solo');
 
   useEffect(() => {
     const user = localStorage.getItem('user');
     if (user) {
       setCurrentUser(JSON.parse(user));
+    }
+    const mode = localStorage.getItem('mode_session') || 'solo';
+    setSessionMode(mode);
+    const collab = localStorage.getItem('collaborateur');
+    if (collab) {
+      setCollaborator(JSON.parse(collab));
     }
   }, []); 
 
@@ -73,6 +81,10 @@ export default function Accueil() {
       setSaveMessage("⚠️ Sélectionner une pathologie");
       return;
     }
+    if (sessionMode === 'collaboration' && !collaborator) {
+      setSaveMessage("⚠️ Session duo non valide (collaborateur manquant)");
+      return;
+    }
     
     setIsSaving(true);
     setSaveMessage('⏳ Préparation...');
@@ -81,16 +93,23 @@ export default function Accueil() {
       // 1. Hash pour unicité
       const imageHash = await calculateHash(selectedFile);
       
-      // 2. Vérifier si cet utilisateur a déjà envoyé cette image exacte
+      const diagnosticians = sessionMode === 'collaboration' && collaborator
+        ? [currentUser, collaborator]
+        : [currentUser];
+
+      const diagnosticianIds = diagnosticians
+        .map(doc => doc?.id)
+        .filter(Boolean);
+
+      // 2. Vérifier si l'un des médecins a déjà envoyé cette image exacte
       const { data: existing } = await supabase
         .from('categories_diagnostics')
-        .select('id')
+        .select('id, utilisateur_id')
         .eq('image_hash', imageHash)
-        .eq('utilisateur_id', currentUser.id)
-        .maybeSingle();
+        .in('utilisateur_id', diagnosticianIds);
 
-      if (existing) {
-        setSaveMessage('⚠️ Vous avez déjà enregistré cette image.');
+      if (existing && existing.length > 0) {
+        setSaveMessage('⚠️ Cette image est déjà enregistrée pour ce duo.');
         setIsSaving(false);
         return;
       }
@@ -122,21 +141,23 @@ export default function Accueil() {
 
       setSaveMessage('💾 Enregistrement BDD...');
 
-      // 6. Insertion Database
+      // 6. Insertion Database (une ligne par medecin)
+      const records = diagnosticians.map(doc => ({
+        maladie_nom: nomMaladie,
+        stade_nom: stadeNom,
+        image_url: publicUrl,
+        image_hash: imageHash,
+        nom_image_originale: selectedFile.name,
+        nom_image_renommee: newFileName,
+        path_image_final: storagePath,
+        utilisateur_id: doc.id,
+        nom_medecin_diagnostiqueur: `${doc.prenom} ${doc.nom}`,
+        date_diagnostique: new Date().toISOString().split('T')[0]
+      }));
+
       const { error: dbError } = await supabase
         .from('categories_diagnostics')
-        .insert([{
-          maladie_nom: nomMaladie,
-          stade_nom: stadeNom,
-          image_url: publicUrl,
-          image_hash: imageHash,
-          nom_image_originale: selectedFile.name,
-          nom_image_renommee: newFileName,
-          path_image_final: storagePath,
-          utilisateur_id: currentUser.id,
-          nom_medecin_diagnostiqueur: `${currentUser.prenom} ${currentUser.nom}`,
-          date_diagnostique: new Date().toISOString().split('T')[0]
-        }]);
+        .insert(records);
 
       if (dbError) throw dbError;
 
