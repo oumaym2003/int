@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Lock, ArrowRight, Stethoscope, Activity, Users } from 'lucide-react';
-import { supabase } from '../supabaseClient'; // Import du client Supabase
+import { supabase } from '../supabaseClient';
 
 export default function Login({ onLogin, isAuthenticated }) {
   const navigate = useNavigate();
@@ -20,29 +20,44 @@ export default function Login({ onLogin, isAuthenticated }) {
     }
   }, [isAuthenticated, navigate]);
 
-  // Fonction utilitaire pour vérifier un utilisateur dans Supabase
-  const checkUserSupabase = async (email, password) => {
+  const signInWithPassword = async (email, password) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(error.message || 'Erreur de connexion');
+  };
+
+  const fetchProfileByEmail = async (email) => {
     const { data, error } = await supabase
       .from('utilisateurs')
-      .select('*')
+      .select('id, nom, prenom, email')
       .eq('email', email)
       .single();
 
     if (error || !data) {
-      throw new Error(`Compte inconnu : ${email}`);
+      throw new Error(`Compte introuvable: ${email}`);
     }
-    if (data.mot_de_passe !== password) {
-      throw new Error(`Mot de passe incorrect pour ${email}`);
-    }
+
     return data;
+  };
+
+  const loginAndGetProfile = async (email, password) => {
+    await signInWithPassword(email, password);
+    return fetchProfileByEmail(email);
+  };
+
+  const safeSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn('Erreur signOut:', err);
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     try {
-      // 1. Connexion du premier médecin via Supabase
-      const user1 = await checkUserSupabase(formData.email, formData.password);
+      // 1. Connexion du premier médecin via Supabase Auth
+      const user1 = await loginAndGetProfile(formData.email, formData.password);
       
       // Stockage du médecin principal
       localStorage.setItem('user', JSON.stringify(user1));
@@ -53,12 +68,16 @@ export default function Login({ onLogin, isAuthenticated }) {
             throw new Error("Les deux médecins doivent être différents.");
         }
         try {
-          const user2 = await checkUserSupabase(formData.email2, formData.password2);
+          const user2 = await loginAndGetProfile(formData.email2, formData.password2);
+
+          // On remet la session sur le médecin principal
+          await signInWithPassword(formData.email, formData.password);
           
           // Sauvegarde du collaborateur
           localStorage.setItem('collaborateur', JSON.stringify(user2));
           localStorage.setItem('mode_session', 'collaboration');
         } catch (err) {
+          await safeSignOut();
           // Si le 2ème échoue, on annule tout pour rester cohérent
           localStorage.removeItem('user');
           alert(err.message);
@@ -74,6 +93,7 @@ export default function Login({ onLogin, isAuthenticated }) {
       navigate('/diagnostic');
 
     } catch (error) {
+      await safeSignOut();
       alert("Erreur : " + error.message);
     }
   };

@@ -101,13 +101,12 @@ const MesImages = () => {
   });
 
   const verifyPassword = async (pwd) => {
-    if (!currentUserId) return false;
-    const { data, error } = await supabase
-      .from('utilisateurs')
-      .select('mot_de_passe')
-      .eq('id', currentUserId)
-      .single();
-    return !error && data?.mot_de_passe === pwd;
+    if (!currentUser?.email) return false;
+    const { error } = await supabase.auth.signInWithPassword({
+      email: currentUser.email,
+      password: pwd
+    });
+    return !error;
   };
 
   const resetModalState = () => {
