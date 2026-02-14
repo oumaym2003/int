@@ -33,9 +33,14 @@ const MesImages = () => {
   const [searchTerm, setSearchTerm] = useState(''); 
   const [searchDoctor, setSearchDoctor] = useState(''); 
 
-  // Récupération sécurisée de l'utilisateur
+  // --- RÉCUPÉRATION UTILISATEUR ROBUSTE ---
   const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
-  const currentUserId = currentUser?.id ? Number(currentUser.id) : null;
+  const currentUserId = currentUser?.id || null; // On garde l'UUID tel quel (String)
+  
+  // Extraction des noms pour affichage et insertion BDD
+  const docFirstName = currentUser.prenom || "";
+  const docLastName = currentUser.nom || "";
+  const doctorDisplayName = `${docFirstName} ${docLastName}`.trim() || "Médecin";
 
   const groupData = (data) => {
     if (!data || !Array.isArray(data)) return [];
@@ -82,13 +87,13 @@ const MesImages = () => {
     return maxCount >= 2 ? 'validated' : 'divergent';
   };
 
-  // Filtrage robuste des groupes
+  // --- FILTRAGE DES GROUPES (UUID STRING) ---
   const myGroups = allDataGrouped.filter(g => 
-    g.avis.some(a => Number(a.utilisateur_id) === currentUserId)
+    g.avis.some(a => a.utilisateur_id === currentUserId)
   );
   
   const availableGroups = allDataGrouped.filter(g => 
-    !g.avis.some(a => Number(a.utilisateur_id) === currentUserId) && 
+    !g.avis.some(a => a.utilisateur_id === currentUserId) && 
     getAvisStatus(g) !== 'validated'
   );
 
@@ -137,30 +142,38 @@ const MesImages = () => {
     const isValid = await verifyPassword(password.trim());
     if (!isValid) { setError("Mot de passe incorrect."); return; }
 
-    if (modalMode === 'edit') {
-      const { error } = await supabase
-        .from('categories_diagnostics')
-        .update({ 
-          maladie_nom: newDiseaseName, 
-          stade_nom: newDiseaseType 
-        })
-        .eq('id', selectedImage.id);
-      if (error) console.error("Erreur Update:", error.message);
-    } else {
-      const { error } = await supabase
-        .from('categories_diagnostics')
-        .insert([{
-          image_hash: selectedGroup.image_hash,
-          image_url: selectedGroup.image_url,
-          maladie_nom: newDiseaseName,
-          stade_nom: newDiseaseType,
-          utilisateur_id: currentUserId,
-          nom_medecin_diagnostiqueur: `${currentUser.prenom} ${currentUser.nom}`
-        }]);
-      if (error) console.error("Erreur Insert:", error.message);
+    try {
+      if (modalMode === 'edit') {
+        const { error } = await supabase
+          .from('categories_diagnostics')
+          .update({ 
+            maladie_nom: newDiseaseName, 
+            stade_nom: newDiseaseType 
+          })
+          .eq('id', selectedImage.id);
+        if (error) throw error;
+      } else {
+        // AJOUT D'AVIS (CONTRIBUER)
+        const { error } = await supabase
+          .from('categories_diagnostics')
+          .insert([{
+            image_hash: selectedGroup.image_hash,
+            image_url: selectedGroup.image_url,
+            maladie_nom: newDiseaseName,
+            stade_nom: newDiseaseType,
+            utilisateur_id: currentUserId,
+            nom: docLastName, // Colonne simple 'nom'
+            nom_medecin_diagnostiqueur: doctorDisplayName, // Nom complet
+            date_diagnostique: new Date().toISOString().split('T')[0]
+          }]);
+        if (error) throw error;
+      }
+      setShowModal(false); 
+      fetchData();
+    } catch (err) {
+      console.error("Erreur action:", err.message);
+      setError("Erreur lors de l'enregistrement.");
     }
-    setShowModal(false); 
-    fetchData();
   };
 
   const handleDeleteConfirm = async () => {
@@ -181,7 +194,6 @@ const MesImages = () => {
     }
   };
 
-  // --- RENDU ---
   const currentCategory = categoryOptions.find(c => c.name === newDiseaseName);
   const uniqueDiseases = categoryOptions.map(cat => cat.name);
   const uniqueDoctors = [...new Set(allDataGrouped.flatMap(group => group.avis.map(avi => avi.nom_medecin_diagnostiqueur)))].filter(Boolean).sort();
@@ -235,13 +247,13 @@ const MesImages = () => {
 
                 <div className="p-6 space-y-3">
                   {group.avis.map((avi) => (
-                    <div key={avi.id} className={`p-4 rounded-2xl border transition-colors ${Number(avi.utilisateur_id) === currentUserId ? 'bg-cyan-500/10 border-cyan-500/30' : 'bg-slate-900 border-transparent'}`}>
+                    <div key={avi.id} className={`p-4 rounded-2xl border transition-colors ${avi.utilisateur_id === currentUserId ? 'bg-cyan-500/10 border-cyan-500/30' : 'bg-slate-900 border-transparent'}`}>
                       <div className="flex justify-between items-start">
                         <div>
                           <p className="text-xs font-black text-cyan-400 uppercase tracking-tight">{avi.maladie_nom} {avi.stade_nom && avi.stade_nom !== 'Standard' ? `(${avi.stade_nom})` : ''}</p>
                           <p className="text-[10px] text-slate-500 italic mt-1 font-medium">Dr. {avi.nom_medecin_diagnostiqueur}</p>
                         </div>
-                        {Number(avi.utilisateur_id) === currentUserId && (
+                        {avi.utilisateur_id === currentUserId && (
                           <div className="flex gap-1">
                             <button onClick={() => handleEditClick(avi)} className="p-2 text-slate-400 hover:text-cyan-400 transition-colors"><Edit size={14}/></button>
                             <button onClick={() => handleDeleteClick(avi)} className="p-2 text-red-400/50 hover:text-red-500 transition-colors"><Trash2 size={14}/></button>

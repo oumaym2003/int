@@ -77,114 +77,132 @@ export default function Accueil() {
   };
 
   const handleUpload = async () => {
-    if (!selectedFile || Object.keys(selections).length === 0 || !currentUser) {
-      setSaveMessage("⚠️ Sélectionner une pathologie");
-      return;
+  // 1. Vérifications de base
+  if (!selectedFile || Object.keys(selections).length === 0 || !currentUser) {
+    setSaveMessage("⚠️ Sélectionner une pathologie");
+    return;
+  }
+  
+  if (sessionMode === 'collaboration' && !collaborator) {
+    setSaveMessage("⚠️ Session duo non valide (collaborateur manquant)");
+    return;
+  }
+
+  setIsSaving(true);
+  setSaveMessage('⏳ Vérification de la session...');
+
+  try {
+    // 2. Sécurité : Vérifier que la session est toujours valide avant d'uploader
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      throw new Error("Votre session a expiré. Veuillez vous reconnecter.");
     }
-    if (sessionMode === 'collaboration' && !collaborator) {
-      setSaveMessage("⚠️ Session duo non valide (collaborateur manquant)");
-      return;
-    }
+
+    // 3. Hash pour l'unicité (SHA-256)
+    const imageHash = await calculateHash(selectedFile);
     
-    setIsSaving(true);
-    setSaveMessage('⏳ Préparation...');
+    const diagnosticians = sessionMode === 'collaboration' && collaborator
+      ? [currentUser, collaborator]
+      : [currentUser];
 
-    try {
-      // 1. Hash pour unicité
-      const imageHash = await calculateHash(selectedFile);
-      
-      const diagnosticians = sessionMode === 'collaboration' && collaborator
-        ? [currentUser, collaborator]
-        : [currentUser];
+    const diagnosticianIds = diagnosticians.map(doc => doc?.id).filter(Boolean);
 
-      const diagnosticianIds = diagnosticians
-        .map(doc => doc?.id)
-        .filter(Boolean);
+    // 4. Vérifier les doublons
+    const { data: existing, error: checkError } = await supabase
+      .from('categories_diagnostics')
+      .select('id')
+      .eq('image_hash', imageHash)
+      .in('utilisateur_id', diagnosticianIds);
 
-      // 2. Vérifier si l'un des médecins a déjà envoyé cette image exacte
-      const { data: existing } = await supabase
-        .from('categories_diagnostics')
-        .select('id, utilisateur_id')
-        .eq('image_hash', imageHash)
-        .in('utilisateur_id', diagnosticianIds);
-
-      if (existing && existing.length > 0) {
-        setSaveMessage('⚠️ Cette image est déjà enregistrée pour ce duo.');
-        setIsSaving(false);
-        return;
+    if (checkError) {
+      // Si l'erreur est liée au cache, on donne un conseil précis
+      if (checkError.message.includes('cache')) {
+        throw new Error("La base de données se synchronise. Attendez 10s et réessayez.");
       }
-
-      // 3. Préparer les données
-      const selectedKeys = Object.keys(selections);
-      const nomMaladie = selectedKeys.join(' + ');
-      const stadeNom = selectedKeys.map(k => selections[k].stage || 'Aucun').join(' / ');
-      const maladiePart = sanitizePart(selectedKeys[0], 'inconnue'); // Pour le dossier principal
-      
-      const fileExt = selectedFile.name.split('.').pop();
-      const timestamp = Date.now();
-      const newFileName = `${maladiePart}_m${currentUser.id}_${timestamp}.${fileExt}`;
-      const storagePath = `utilisateur_${currentUser.id}/${maladiePart}/${newFileName}`;
-
-      setSaveMessage('🚀 Upload image...');
-
-      // 4. Upload vers le Storage (Assurez-vous que le bucket 'images' est PUBLIC)
-      const { error: uploadError } = await supabase.storage
-        .from('images')
-        .upload(storagePath, selectedFile);
-
-      if (uploadError) throw uploadError;
-
-      // 5. Récupérer l'URL publique
-      const { data: { publicUrl } } = supabase.storage
-        .from('images')
-        .getPublicUrl(storagePath);
-
-      setSaveMessage('💾 Enregistrement BDD...');
-
-      // 6. Insertion Database (une ligne par medecin)
-      const records = diagnosticians.map(doc => ({
-        maladie_nom: nomMaladie,
-        stade_nom: stadeNom,
-        image_url: publicUrl,
-        image_hash: imageHash,
-        nom_image_originale: selectedFile.name,
-        nom_image_renommee: newFileName,
-        path_image_final: storagePath,
-        utilisateur_id: doc.id,
-        nom_medecin_diagnostiqueur: `${doc.prenom} ${doc.nom}`,
-        date_diagnostique: new Date().toISOString().split('T')[0]
-      }));
-
-      const { error: dbError } = await supabase
-        .from('categories_diagnostics')
-        .insert(records);
-
-      if (dbError) throw dbError;
-
-      // 7. Mise à jour UI
-      const updatedQueue = [...fileQueue];
-      updatedQueue[currentIndex].status = 'uploaded';
-      setFileQueue(updatedQueue);
-
-      // Passage automatique à la suivante
-      if (currentIndex < fileQueue.length - 1) {
-        const next = currentIndex + 1;
-        setCurrentIndex(next);
-        setSelectedFile(fileQueue[next].file);
-        setSelectedImage(fileQueue[next].preview);
-        setSelections({});
-        setSaveMessage('✅ Enregistré ! Suivante...');
-      } else {
-        setSaveMessage("🎉 Terminé ! Toutes les images sont traitées.");
-      }
-
-    } catch (err) {
-      console.error(err);
-      setSaveMessage(`❌ Erreur: ${err.message}`);
-    } finally {
-      setIsSaving(false);
+      throw checkError;
     }
-  };
+
+    if (existing && existing.length > 0) {
+      setSaveMessage('⚠️ Image déjà enregistrée pour ce(s) médecin(s).');
+      setIsSaving(false);
+      return;
+    }
+
+    // 5. Préparation du chemin de stockage
+    const selectedKeys = Object.keys(selections);
+    const nomMaladie = selectedKeys.join(' + ');
+    const stadeNom = selectedKeys.map(k => selections[k].stage || 'Aucun').join(' / ');
+    const maladiePart = sanitizePart(selectedKeys[0], 'inconnue');
+    
+    const fileExt = selectedFile.name.split('.').pop();
+    const timestamp = Date.now();
+    const newFileName = `${maladiePart}_m${currentUser.id}_${timestamp}.${fileExt}`;
+    const storagePath = `utilisateur_${currentUser.id}/${maladiePart}/${newFileName}`;
+
+    setSaveMessage('🚀 Upload vers le serveur...');
+
+    // 6. Upload avec "upsert" pour éviter les erreurs de fichiers existants
+    const { error: uploadError } = await supabase.storage
+      .from('images')
+      .upload(storagePath, selectedFile, { upsert: true });
+
+    if (uploadError) throw uploadError;
+
+    // 7. Récupération de l'URL publique
+    const { data: { publicUrl } } = supabase.storage
+      .from('images')
+      .getPublicUrl(storagePath);
+
+    setSaveMessage('💾 Enregistrement final...');
+
+    // 8. Insertion en BDD
+    const records = diagnosticians.map(doc => ({
+      maladie_nom: nomMaladie,
+      stade_nom: stadeNom,
+      image_url: publicUrl,
+      image_hash: imageHash,
+      nom_image_originale: selectedFile.name, // Respect de ta consigne
+      nom_image_renommee: newFileName,
+      path_image_final: storagePath,
+      utilisateur_id: doc.id,
+      nom_medecin_diagnostiqueur: `${doc.prenom || ''} ${doc.nom || ''}`.trim(),
+      date_diagnostique: new Date().toISOString().split('T')[0]
+    }));
+
+    const { error: dbError } = await supabase
+      .from('categories_diagnostics')
+      .insert(records);
+
+    if (dbError) throw dbError;
+
+    // 9. Succès et passage à l'image suivante
+    const updatedQueue = [...fileQueue];
+    updatedQueue[currentIndex].status = 'uploaded';
+    setFileQueue(updatedQueue);
+
+    if (currentIndex < fileQueue.length - 1) {
+      const next = currentIndex + 1;
+      setCurrentIndex(next);
+      setSelectedFile(fileQueue[next].file);
+      setSelectedImage(fileQueue[next].preview);
+      setSelections({}); // Réinitialise les cases cochées
+      setSaveMessage('✅ Diagnostic validé !');
+    } else {
+      setSaveMessage("🎉 Travail terminé pour ce dossier !");
+    }
+
+  } catch (err) {
+    console.error("Erreur détaillée:", err);
+    // Gestion spécifique des erreurs de colonnes manquantes
+    if (err.message.includes('column') || err.message.includes('cache')) {
+      setSaveMessage(`❌ Erreur Structure: Vérifiez que la colonne '${err.message.split("'")[1]}' existe.`);
+    } else {
+      setSaveMessage(`❌ Erreur: ${err.message}`);
+    }
+  } finally {
+    setIsSaving(false);
+  }
+};
 
   return (
     <div className="min-h-screen flex flex-col bg-[#0f172a] text-white">
