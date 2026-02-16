@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Lock, ArrowRight, Stethoscope, Activity, Users } from 'lucide-react';
 import { supabase } from '../supabaseClient';
@@ -14,11 +14,15 @@ export default function Login({ onLogin, isAuthenticated }) {
   });
   const [showPassword, setShowPassword] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (isAuthenticated) {
       navigate('/diagnostic');
     }
   }, [isAuthenticated, navigate]);
+
+  const handleChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
 
   const signInWithPassword = async (email, password) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -35,7 +39,8 @@ export default function Login({ onLogin, isAuthenticated }) {
     if (error || !data) {
       throw new Error(`Compte introuvable: ${email}`);
     }
-
+    
+    console.log('Profil récupéré depuis Supabase:', data);
     return data;
   };
 
@@ -44,62 +49,81 @@ export default function Login({ onLogin, isAuthenticated }) {
     return fetchProfileByEmail(email);
   };
 
-  const safeSignOut = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (err) {
-      console.warn('Erreur signOut:', err);
-    }
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-
+    
+    // NETTOYER LE LOCALSTORAGE AVANT CONNEXION
+    localStorage.clear();
+    console.log('localStorage nettoyé avant nouvelle connexion');
+    
     try {
-      // 1. Connexion du premier médecin via Supabase Auth
+      // Connexion et récupération FRAÎCHE du profil depuis Supabase
       const user1 = await loginAndGetProfile(formData.email, formData.password);
       
-      // Stockage du médecin principal
+      // Vérification que les données sont complètes
+      if (!user1.nom || !user1.prenom) {
+        throw new Error(`Profil incomplet. Nom: ${user1.nom}, Prénom: ${user1.prenom}. Contactez l'administrateur.`);
+      }
+      
+      // Stockage dans localStorage avec TOUTES les informations
       localStorage.setItem('user', JSON.stringify(user1));
+      localStorage.setItem('currentUser', JSON.stringify(user1));
+      
+      console.log('Utilisateur stocké dans localStorage:', user1);
+      console.log('Nom complet:', `${user1.prenom} ${user1.nom}`);
 
-      // 2. Si mode collaboration, connexion du deuxième médecin
       if (isCollabMode) {
         if (formData.email === formData.email2) {
-            throw new Error("Les deux médecins doivent être différents.");
+          throw new Error("Les deux médecins doivent être différents.");
         }
-        try {
-          const user2 = await loginAndGetProfile(formData.email2, formData.password2);
+        
+        // Authentification du collaborateur
+        const { data: authData2, error: authError2 } = await supabase.auth.signInWithPassword({
+          email: formData.email2,
+          password: formData.password2
+        });
 
-          // On remet la session sur le médecin principal
-          await signInWithPassword(formData.email, formData.password);
-          
-          // Sauvegarde du collaborateur
-          localStorage.setItem('collaborateur', JSON.stringify(user2));
-          localStorage.setItem('mode_session', 'collaboration');
-        } catch (err) {
-          await safeSignOut();
-          // Si le 2ème échoue, on annule tout pour rester cohérent
-          localStorage.removeItem('user');
-          alert(err.message);
-          return;
+        if (authError2) {
+          throw new Error("Erreur d'authentification collaborateur: " + authError2.message);
         }
+
+        // Récupération du profil du collaborateur
+        const user2 = await fetchProfileByEmail(formData.email2);
+        
+        // Vérification du profil du collaborateur
+        if (!user2.nom || !user2.prenom) {
+          throw new Error(`Profil du collaborateur incomplet. Contactez l'administrateur.`);
+        }
+        
+        // Stockage du collaborateur
+        localStorage.setItem('collaborateur', JSON.stringify(user2));
+        localStorage.setItem('mode_session', 'collaboration');
+        
+        console.log('Collaborateur stocké:', user2);
+
+        // Re-connexion du médecin principal
+        await supabase.auth.signInWithPassword({
+          email: formData.email,
+          password: formData.password
+        });
       } else {
-        // Mode solo : nettoyage
         localStorage.removeItem('collaborateur');
         localStorage.setItem('mode_session', 'solo');
       }
 
+      console.log('=== CONNEXION RÉUSSIE ===');
+      console.log('User:', JSON.parse(localStorage.getItem('user')));
+      console.log('Mode:', localStorage.getItem('mode_session'));
+      if (isCollabMode) {
+        console.log('Collaborateur:', JSON.parse(localStorage.getItem('collaborateur')));
+      }
+
       if (onLogin) onLogin();
       navigate('/diagnostic');
-
     } catch (error) {
-      await safeSignOut();
+      console.error("Erreur de connexion:", error);
       alert("Erreur : " + error.message);
     }
-  };
-
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   return (
@@ -149,8 +173,6 @@ export default function Login({ onLogin, isAuthenticated }) {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              
-              {/* MÉDECIN 1 */}
               <div className={`space-y-4 ${isCollabMode ? 'p-4 bg-white/5 rounded-2xl border border-white/10' : ''}`}>
                 {isCollabMode && <p className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest">Médecin Principal</p>}
                 <div className="relative group">
@@ -179,7 +201,6 @@ export default function Login({ onLogin, isAuthenticated }) {
                 </div>
               </div>
 
-              {/* MÉDECIN 2 */}
               {isCollabMode && (
                 <div className="space-y-4 p-4 bg-cyan-500/5 rounded-2xl border border-cyan-500/20 animate-in fade-in slide-in-from-top-2">
                   <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Médecin Collaborateur</p>
