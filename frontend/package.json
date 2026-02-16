@@ -18,8 +18,8 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
-    "dev": "vite",
-    "preview": "vite preview"
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
   },
   "browserslist": {
     "production": [
